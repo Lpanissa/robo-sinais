@@ -144,14 +144,14 @@ export default function App() {
   if (aberta) {
     painel = {
       fundo: aberta.dir === 'up' ? C.alta : C.baixa, seta: aberta.dir, etapa: 'Sinal confirmado',
-      titulo: aberta.dir === 'up' ? 'ENTRAR PARA CIMA' : 'ENTRAR PARA BAIXO', cor: aberta.dir === 'up' ? C.alta : C.baixa,
+      titulo: aberta.dir === 'up' ? 'COMPRA' : 'VENDA', cor: aberta.dir === 'up' ? C.alta : C.baixa,
       sub: `Preço de entrada ${aberta.entrada.toFixed(casas)} · expiração ${cfg.expira} min`,
       hora: hora(aberta.t), cd: `hora da entrada · termina às ${hora(aberta.fimT)} (${seg(aberta.fimT)} s)`,
     };
   } else if (S.pre) {
     painel = {
       fundo: C.destaque, seta: 'atencao', etapa: 'Atenção',
-      titulo: 'Prepare-se: possível ' + (S.pre.dir === 'up' ? 'PARA CIMA' : 'PARA BAIXO'), cor: C.texto,
+      titulo: 'Prepare-se: possível ' + (S.pre.dir === 'up' ? 'COMPRA' : 'VENDA'), cor: C.texto,
       sub: 'O robô confirma ou cancela quando a vela fechar', hora: hora(S.pre.ateT), cd: `confirmação em ${seg(S.pre.ateT)} s`,
     };
   } else {
@@ -308,7 +308,7 @@ export default function App() {
               return (
                 <View key={o.t + o.res} style={[s.hist, i > 0 && s.borda]}>
                   <Text style={[s.mono, { color: C.suave, width: 64 }]}>{hora(o.t)}</Text>
-                  <Text style={[s.mono, { color: o.dir === 'up' ? C.alta : C.baixa, width: 58 }]}>{o.dir === 'up' ? '▲ Cima' : '▼ Baixo'}</Text>
+                  <Text style={[s.mono, { color: o.dir === 'up' ? C.alta : C.baixa, width: 72 }]}>{o.dir === 'up' ? '▲ Compra' : '▼ Venda'}</Text>
                   <Text style={[s.histRes, { color: corRes[o.res] }]}>{rotulo[o.res]}</Text>
                   <Text style={[s.mono, { color: corRes[o.res], marginLeft: 'auto' }]}>{v === 'sem banca' ? 'Sem banca' : v == null ? '—' : sinal(v)}</Text>
                 </View>

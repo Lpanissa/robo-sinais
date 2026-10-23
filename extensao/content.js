@@ -376,8 +376,8 @@
     const agora = Date.now();
     const seg = (t) => Math.max(0, Math.ceil((t - agora) / 1000));
     let sinal;
-    if (aberta) sinal = { bg: aberta.dir === 'up' ? '#2fc59c' : '#f0675b', ic: aberta.dir === 'up' ? '▲' : '▼', t: aberta.dir === 'up' ? 'PARA CIMA' : 'PARA BAIXO', s: `entrada ${hora(aberta.t)} · termina ${hora(aberta.fimT)} (${seg(aberta.fimT)} s)` };
-    else if (S && S.pre) sinal = { bg: '#e5a93a', ic: '!', t: 'Atenção: possível ' + (S.pre.dir === 'up' ? 'para cima' : 'para baixo'), s: `confirma às ${hora(S.pre.ateT)} (${seg(S.pre.ateT)} s)` };
+    if (aberta) sinal = { bg: aberta.dir === 'up' ? '#2fc59c' : '#f0675b', ic: aberta.dir === 'up' ? '▲' : '▼', t: aberta.dir === 'up' ? 'COMPRA' : 'VENDA', s: `entrada ${hora(aberta.t)} · termina ${hora(aberta.fimT)} (${seg(aberta.fimT)} s)` };
+    else if (S && S.pre) sinal = { bg: '#e5a93a', ic: '!', t: 'Atenção: possível ' + (S.pre.dir === 'up' ? 'compra' : 'venda'), s: `confirma às ${hora(S.pre.ateT)} (${seg(S.pre.ateT)} s)` };
     else sinal = { bg: '#253042', ic: '○', t: 'Aguardando', s: c ? 'sem sinal por perto' : 'sem combinação aprovada neste ativo' };
     const ct = conta();
     const real = ct && !/demo/i.test(ct);
@@ -399,7 +399,7 @@ ${comb}
 <button class="rs-b" data-a="ligar" style="background:${cfg.ligado ? '#f0675b' : '#2fc59c'};color:#0e141d">${cfg.ligado ? 'Desligar robô' : 'Ligar robô (operar)'}</button>
 ${sessao.parado ? `<div style="color:#f0675b;font-size:12px">Robô parou: ${esc(sessao.parado)}</div>` : ''}
 <div class="rs-row rs-mono" style="font-size:12px"><div>Sessão: <b style="color:${sessao.resultado >= 0 ? '#2fc59c' : '#f0675b'}">${sessao.resultado >= 0 ? '+' : ''}${sessao.resultado.toFixed(2)}</b></div><div>${ganhos} ganhos · ${perdas} perdas</div></div>
-<div class="rs-ops">${sessao.ops.slice(0, 8).map((o) => `<div class="rs-op"><span class="rs-mono">${hora(o.hora)} ${o.dir === 'up' ? '▲' : '▼'}</span><span>${esc(o.situacao)}</span><span class="rs-mono" style="color:${o.resultado > 0 ? '#2fc59c' : o.resultado < 0 ? '#f0675b' : '#8b97a8'}">${o.resultado != null ? (o.resultado > 0 ? '+' : '') + o.resultado.toFixed(2) : ''}</span></div>`).join('') || '<span style="color:#8b97a8">Nenhuma operação ainda</span>'}</div>
+<div class="rs-ops">${sessao.ops.slice(0, 8).map((o) => `<div class="rs-op"><span class="rs-mono">${hora(o.hora)} ${o.dir === 'up' ? '▲ Compra' : '▼ Venda'}</span><span>${esc(o.situacao)}</span><span class="rs-mono" style="color:${o.resultado > 0 ? '#2fc59c' : o.resultado < 0 ? '#f0675b' : '#8b97a8'}">${o.resultado != null ? (o.resultado > 0 ? '+' : '') + o.resultado.toFixed(2) : ''}</span></div>`).join('') || '<span style="color:#8b97a8">Nenhuma operação ainda</span>'}</div>
 <button class="rs-b" data-a="geral" style="background:#253042;color:#e7ecf3;font-size:12px;padding:7px">${rodandoGeral ? 'Testando todos os ativos...' : 'Testar todos os ativos (ranking geral)'}</button>
 ${geral}`;
 
