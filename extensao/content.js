@@ -149,7 +149,6 @@
   let operando = false;
   const sessao = { ops: [], perdasSeguidas: 0, resultado: 0, parado: '' };
 
-  chrome.storage.local.get('cfg', (r) => { cfg = { ...PADRAO, ...(r.cfg || {}) }; montarPainel(); });
   const salvar = () => chrome.storage.local.set({ cfg });
   function status(t, tipo) { statusTxt = t; statusTipo = tipo; }
 
@@ -431,6 +430,8 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
     topoEl.innerHTML = topo;
     if (refazerForm || !corpo.querySelector('#rs-form').innerHTML) corpo.querySelector('#rs-form').innerHTML = form;
   }
+
+  chrome.storage.local.get('cfg', (r) => { cfg = { ...PADRAO, ...(r.cfg || {}) }; montarPainel(); });
 
   let rodando = false;
   setInterval(async () => {
