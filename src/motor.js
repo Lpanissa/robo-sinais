@@ -39,7 +39,8 @@ function fechar(m, cfg, aviso) {
   const v = m.velas;
   const k = v[v.length - 1];
   m.fechadaAte = k.t;
-  const fimT = k.t + MIN;
+  const TF = cfg.tf || MIN; // duração da vela (1 min no app; a extensão também usa 5 min)
+  const fimT = k.t + TF;
   const preco = k.c;
   for (const id in m.S) {
     for (const o of m.S[id].ops) {
@@ -71,7 +72,7 @@ function fechar(m, cfg, aviso) {
     }
     // depois de um cancelamento, a vela atual ainda pode abrir um novo alerta
     if (!S.pre && !aberta && R.dir && (R.ready || R.near)) {
-      S.pre = { dir: R.dir, ready: !!R.ready, ateT: fimT + MIN };
+      S.pre = { dir: R.dir, ready: !!R.ready, ateT: fimT + TF };
       if (aviso) aviso(s.id, 'atencao');
     }
     if (S.ops.length > 3000) S.ops.splice(0, 500);
