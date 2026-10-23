@@ -6,7 +6,23 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0e141d",
-    "android": { "package": "com.panissa.robosinais" },
-    "web": { "bundler": "metro", "output": "single", "name": "Robô de Sinais", "shortName": "Robô de Sinais", "themeColor": "#0e141d", "backgroundColor": "#0e141d" }
+    "android": {
+      "package": "com.panissa.robosinais",
+      "versionCode": 1,
+      "permissions": [
+        "VIBRATE"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#0e141d"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "Robô de Sinais",
+      "shortName": "Robô de Sinais",
+      "themeColor": "#0e141d",
+      "backgroundColor": "#0e141d"
+    }
   }
 }
