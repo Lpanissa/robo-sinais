@@ -55,18 +55,22 @@ function fechar(m, cfg, aviso) {
   const sobe = k.c > k.o, desce = k.c < k.o;
   for (const s of ESTRATEGIAS) {
     const S = m.S[s.id];
-    const aberta = S.ops.some((o) => o.res === 'aberta');
+    let aberta = S.ops.some((o) => o.res === 'aberta');
     const R = s.fn(I, cfg.rigor, v) || {};
     if (S.pre) {
-      const ok = (R.ready && R.dir === S.pre.dir) || (S.pre.ready && (S.pre.dir === 'up' ? sobe : desce));
+      const velaConfirma = S.pre.dir === 'up' ? sobe : desce;
+      const ok = (R.ready && R.dir === S.pre.dir) || ((S.pre.ready || (R.near && R.dir === S.pre.dir)) && velaConfirma);
       if (ok && !aberta) {
         S.ops.push({ t: fimT, dir: S.pre.dir, entrada: preco, fimT: fimT + cfg.expira * MIN, res: 'aberta' });
+        aberta = true;
         if (aviso) aviso(s.id, 'sinal');
       } else {
         S.ops.push({ t: fimT, dir: S.pre.dir, res: 'cancelado' });
       }
       S.pre = null;
-    } else if (!aberta && R.dir && (R.ready || R.near)) {
+    }
+    // depois de um cancelamento, a vela atual ainda pode abrir um novo alerta
+    if (!S.pre && !aberta && R.dir && (R.ready || R.near)) {
       S.pre = { dir: R.dir, ready: !!R.ready, ateT: fimT + MIN };
       if (aviso) aviso(s.id, 'atencao');
     }

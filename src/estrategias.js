@@ -8,7 +8,7 @@ export const ESTRATEGIAS = [
       if (I.last.c <= I.b.lo + bw) s++; else if (I.last.c >= I.b.up - bw) s--;
       s += I.last.c > I.last.o ? 0.5 : -0.5;
       const a = Math.abs(s);
-      return { dir: s > 0 ? 'up' : 'down', ready: a >= rigor, near: a >= rigor - 1 && (I.r < 45 || I.r > 55) };
+      return { dir: s > 0 ? 'up' : 'down', ready: a >= rigor, near: a >= rigor - 1 && (I.r < 40 || I.r > 60) };
     },
   },
   {
