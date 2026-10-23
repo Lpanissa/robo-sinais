@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Robô de Sinais",
+    "slug": "robo-sinais",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0e141d",
+    "android": { "package": "com.panissa.robosinais" },
+    "web": { "bundler": "metro", "output": "single", "name": "Robô de Sinais", "shortName": "Robô de Sinais", "themeColor": "#0e141d", "backgroundColor": "#0e141d" }
+  }
+}
