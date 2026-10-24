@@ -33,11 +33,20 @@
 
   // ---------- ativos ----------
   const FOREX = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'EUR/JPY', 'USD/CAD', 'USD/CHF', 'NZD/USD', 'EUR/GBP', 'GBP/JPY', 'AUD/JPY', 'EUR/CHF'];
+  // outras criptos da Olymp (cotação real da Binance, abertas 24 h, inclusive no fim de semana)
+  const CRIPTOS = [
+    { titulo: 'Litecoin', simbolo: 'LTCUSDT', re: /LITECOIN|LTC/ }, { titulo: 'Ripple', simbolo: 'XRPUSDT', re: /RIPPLE|XRP/ },
+    { titulo: 'Solana', simbolo: 'SOLUSDT', re: /SOLANA|SOL\b/ }, { titulo: 'Cardano', simbolo: 'ADAUSDT', re: /CARDANO|ADA\b/ },
+    { titulo: 'Dogecoin', simbolo: 'DOGEUSDT', re: /DOGE/ }, { titulo: 'BNB', simbolo: 'BNBUSDT', re: /BNB|BINANCE COIN/ },
+    { titulo: 'Polkadot', simbolo: 'DOTUSDT', re: /POLKADOT|DOT\b/ }, { titulo: 'Chainlink', simbolo: 'LINKUSDT', re: /CHAINLINK|LINK\b/ },
+    { titulo: 'Avalanche', simbolo: 'AVAXUSDT', re: /AVALANCHE|AVAX/ }, { titulo: 'Tron', simbolo: 'TRXUSDT', re: /TRON|TRX/ },
+  ];
   const RANKING_ATIVOS = [
     { titulo: 'EUR/USD', fonte: 'forex', simbolo: 'EUR/USD' }, { titulo: 'GBP/USD', fonte: 'forex', simbolo: 'GBP/USD' },
     { titulo: 'USD/JPY', fonte: 'forex', simbolo: 'USD/JPY' }, { titulo: 'AUD/USD', fonte: 'forex', simbolo: 'AUD/USD' },
     { titulo: 'EUR/JPY', fonte: 'forex', simbolo: 'EUR/JPY' }, { titulo: 'Ouro', fonte: 'forex', simbolo: 'XAU/USD', busca: 'Gold' },
     { titulo: 'Bitcoin', fonte: 'cripto', simbolo: 'BTCUSDT' }, { titulo: 'Ethereum', fonte: 'cripto', simbolo: 'ETHUSDT' },
+    ...CRIPTOS.map((c) => ({ titulo: c.titulo, fonte: 'cripto', simbolo: c.simbolo })),
   ];
   function detectarAtivo() {
     const titulo = (q('[data-test="assets-tabs-tab-title"]')?.innerText || '').trim();
@@ -50,6 +59,7 @@
     for (const par of FOREX) if (t === par || id === par.replace('/', '')) return { ...base, fonte: 'forex', simbolo: par };
     if (/BITCOIN|BTC/.test(t) || /^BTC/.test(id)) return { ...base, fonte: 'cripto', simbolo: 'BTCUSDT' };
     if (/ETHEREUM|ETH/.test(t) || /^ETH/.test(id)) return { ...base, fonte: 'cripto', simbolo: 'ETHUSDT' };
+    for (const c of CRIPTOS) if (c.re.test(t) || c.re.test(id.toUpperCase())) return { ...base, fonte: 'cripto', simbolo: c.simbolo };
     if (/GOLD|OURO|XAU/.test(t) || /^XAU/.test(id)) return { ...base, fonte: 'forex', simbolo: 'XAU/USD' };
     if (!titulo) return { ...base, erro: 'Carregando o ativo da Olymp...' };
     // qualquer outro ativo: velas montadas com o preço da tela
