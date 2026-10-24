@@ -270,10 +270,20 @@ const ESTRATEGIAS = [
       const tol = I.atr * 0.35;
       // níveis: topos e fundos de 2 horas (sem as 5 velas mais recentes) que foram tocados pelo menos 2 vezes
       const w = v.slice(-125, -5);
-      const toques = (nivel, lado) => w.filter((x) => Math.abs((lado === 'hi' ? x.h : x.l) - nivel) <= tol).length;
-      const hi = Math.max(...w.map((x) => x.h)), lo = Math.min(...w.map((x) => x.l));
-      const naResist = k.h >= hi - tol && k.c <= hi + tol && toques(hi, 'hi') >= 2;
-      const noSuporte = k.l <= lo + tol && k.c >= lo - tol && toques(lo, 'lo') >= 2;
+      // níveis: pontos onde o preço virou nas últimas 2 horas (topos e fundos locais), sem as 5 velas mais recentes.
+      // um fundo antigo também vale como resistência quando o preço volta nele por baixo (suporte que virou resistência)
+      const piv = [];
+      for (let i = 3; i < w.length - 3; i++) {
+        const x = w[i];
+        if ([1, 2, 3].every((d) => x.h >= w[i - d].h && x.h >= w[i + d].h)) piv.push(x.h);
+        if ([1, 2, 3].every((d) => x.l <= w[i - d].l && x.l <= w[i + d].l)) piv.push(x.l);
+      }
+      const forca = (nivel) => piv.filter((p) => Math.abs(p - nivel) <= tol).length;
+      // resistência: nível acima do fechamento que a vela encostou; suporte: nível abaixo que a vela encostou
+      const resist = piv.filter((p) => k.h >= p - tol && k.c < p && forca(p) >= 2);
+      const suporte = piv.filter((p) => k.l <= p + tol && k.c > p && forca(p) >= 2);
+      const naResist = resist.length > 0;
+      const noSuporte = suporte.length > 0;
       if (!naResist && !noSuporte) return {};
       const corpo = Math.abs(k.c - k.o) || 1e-9, rng = k.h - k.l || 1e-9;
       const sup = k.h - Math.max(k.o, k.c), inf = Math.min(k.o, k.c) - k.l;
