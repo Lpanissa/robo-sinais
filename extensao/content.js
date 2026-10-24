@@ -853,7 +853,8 @@
   // ---------- controle pelo app do celular ----------
   // o que o app pode mudar
   const CHAVES_APP = ['ligado', 'autoAtivo', 'sempreLeitura', 'modo', 'modoValor', 'valor', 'percent', 'maxPerdasSeguidas', 'limitePerda',
-    'metaGanhoDia', 'limitePerdaDia', 'maxAbertas', 'minAcerto', 'minOps', 'fecharModo', 'fecharAlvo', 'fecharManuais', 'expira', 'estrategia', 'tfManual'];
+    'metaGanhoDia', 'limitePerdaDia', 'maxAbertas', 'minAcerto', 'minOps', 'fecharModo', 'fecharAlvo', 'fecharManuais', 'expira', 'estrategia', 'tfManual',
+    'zerarEm', 'bancaInicial'];
   const msg = (m) => new Promise((ok) => { try { if (!vivo()) return ok(null); chrome.runtime.sendMessage(m, (r) => { void chrome.runtime.lastError; ok(r || null); }); } catch (e) { ok(null); } });
   function cfgParaApp() { const o = {}; for (const k of CHAVES_APP) o[k] = cfg[k]; return o; }
   function enviarCfg() { msg({ tipo: 'controle-cfg', cfg: cfgParaApp(), rev: cfg.rev || 0 }); }
@@ -869,6 +870,14 @@
       try {
         for (const k of CHAVES_APP) if (k in c.cfg) cfg[k] = c.cfg[k];
         cfg.rev = c.rev;
+        // "começar a contagem agora" pelo app: zera o placar da conta, o resultado do dia e o placar do fechar antes
+        if (cfg.zerarEm && cfg.zerarEm !== cfg.zeradoEm) {
+          cfg.zeradoEm = cfg.zerarEm;
+          sessao.ops.length = 0; sessao.resultado = 0; sessao.perdasSeguidas = 0; sessao.parado = '';
+          const cg0 = await lerConta();
+          await gravarConta({ ...cg0, resultado: 0, perdasSeguidas: 0, ganhos: 0, perdas: 0, parado: '', dia: hojeTxt(), resultadoDia: 0 });
+          fecharStats = { n: 0, fechando: 0, deixando: 0, viraram: 0 }; chrome.storage.local.set({ fecharStats });
+        }
         if (ligou) { sessao.parado = ''; sessao.perdasSeguidas = 0; const cg = await lerConta(); if (cg.parado) { cg.parado = ''; cg.perdasSeguidas = 0; await gravarConta(cg); } }
         salvar();
       } finally { aplicandoRemoto = false; }
