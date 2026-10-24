@@ -180,6 +180,22 @@ const ESTRATEGIAS = [
       return {};
     },
   },
+  {
+    id: 'pavio', nome: 'Pavio na resistência/suporte', desc: 'Vela bate no topo (ou fundo) anterior e fecha com pavio longo: entra contra', imediato: true,
+    fn(I, rigor, v) {
+      if (v.length < 130) return {};
+      const w = v.slice(-121, -10); // nível anterior: das últimas 120 velas, menos as 10 mais recentes
+      const hi = Math.max(...w.map((k) => k.h)), lo = Math.min(...w.map((k) => k.l));
+      const k = I.last, tol = I.atr * 0.3;
+      const corpo = Math.abs(k.c - k.o) || 1e-9, rng = k.h - k.l || 1e-9;
+      const sup = k.h - Math.max(k.o, k.c), inf = Math.min(k.o, k.c) - k.l;
+      if (k.h >= hi - tol && k.c < hi && sup >= 1.5 * corpo && sup >= 0.5 * rng) return { dir: 'down', ready: true };
+      if (k.l <= lo + tol && k.c > lo && inf >= 1.5 * corpo && inf >= 0.5 * rng) return { dir: 'up', ready: true };
+      if (k.h >= hi - tol * 2 && k.c < hi) return { dir: 'down', near: true };
+      if (k.l <= lo + tol * 2 && k.c > lo) return { dir: 'up', near: true };
+      return {};
+    },
+  },
 ];
 
 const MIN = 60000;
