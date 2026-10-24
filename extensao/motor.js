@@ -261,6 +261,40 @@ const ESTRATEGIAS = [
       return {};
     },
   },
+  // ---------- leitura de gráfico: padrão de reversão em cima de um nível ----------
+  {
+    id: 'leitura', nome: 'Leitura: padrão de reversão no nível', desc: 'Preço num suporte/resistência que já segurou antes + vela de reversão (pavio, martelo, engolfo, doji, harami, estrela)', imediato: true,
+    fn(I, rigor, v) {
+      if (v.length < 130) return {};
+      const k = I.last, a = v[v.length - 2], b3 = v[v.length - 3];
+      const tol = I.atr * 0.35;
+      // níveis: topos e fundos de 2 horas (sem as 5 velas mais recentes) que foram tocados pelo menos 2 vezes
+      const w = v.slice(-125, -5);
+      const toques = (nivel, lado) => w.filter((x) => Math.abs((lado === 'hi' ? x.h : x.l) - nivel) <= tol).length;
+      const hi = Math.max(...w.map((x) => x.h)), lo = Math.min(...w.map((x) => x.l));
+      const naResist = k.h >= hi - tol && k.c <= hi + tol && toques(hi, 'hi') >= 2;
+      const noSuporte = k.l <= lo + tol && k.c >= lo - tol && toques(lo, 'lo') >= 2;
+      if (!naResist && !noSuporte) return {};
+      const corpo = Math.abs(k.c - k.o) || 1e-9, rng = k.h - k.l || 1e-9;
+      const sup = k.h - Math.max(k.o, k.c), inf = Math.min(k.o, k.c) - k.l;
+      const doji = corpo <= 0.1 * rng;
+      const ca = Math.abs(a.c - a.o);
+      // padrões de baixa (para a resistência)
+      const baixa = (sup >= 1.5 * corpo && sup >= 0.45 * rng) || doji
+        || (a.c > a.o && k.c < k.o && k.c < a.o && k.o >= a.c)
+        || (a.c > a.o && ca > I.atr * 0.6 && Math.max(k.o, k.c) <= a.c && Math.min(k.o, k.c) >= a.o && corpo < ca * 0.5)
+        || (b3.c > b3.o && Math.abs(a.c - a.o) < Math.abs(b3.c - b3.o) * 0.4 && k.c < k.o && k.c < (b3.o + b3.c) / 2);
+      const alta = (inf >= 1.5 * corpo && inf >= 0.45 * rng) || doji
+        || (a.c < a.o && k.c > k.o && k.c > a.o && k.o <= a.c)
+        || (a.c < a.o && ca > I.atr * 0.6 && Math.max(k.o, k.c) <= a.o && Math.min(k.o, k.c) >= a.c && corpo < ca * 0.5)
+        || (b3.c < b3.o && Math.abs(a.c - a.o) < Math.abs(b3.c - b3.o) * 0.4 && k.c > k.o && k.c > (b3.o + b3.c) / 2);
+      if (naResist && baixa) return { dir: 'down', ready: true };
+      if (noSuporte && alta) return { dir: 'up', ready: true };
+      if (naResist) return { dir: 'down', near: true };
+      if (noSuporte) return { dir: 'up', near: true };
+      return {};
+    },
+  },
 ];
 
 const MIN = 60000;
