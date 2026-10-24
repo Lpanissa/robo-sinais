@@ -831,12 +831,14 @@
   window.addEventListener('message', (ev) => {
     const d = ev.data;
     if (ev.source !== window || !d || !d.__rsEscuta) return;
-    let caminho = d.url; try { const u = new URL(d.url, location.href); caminho = u.host + u.pathname; } catch (e) { /* fica a url */ }
-    const forma = d.txt.slice(0, 60).replace(/[0-9]+(\.[0-9]+)?/g, '#');
-    const k = d.tipo + ' ' + caminho + ' ' + forma;
-    if (escuta[k]) { escuta[k].n++; escuta[k].ult = d.txt.slice(0, 700); return; }
-    if (Object.keys(escuta).length >= 40) return;
-    escuta[k] = { tipo: d.tipo, url: caminho, n: 1, tam: d.tam, ex: d.txt.slice(0, 700) };
+    if (!/^ws-/.test(d.tipo)) return; // só o WebSocket (é por ele que vêm cotações e velas); fetch tem dados de login
+    // cada mensagem do WebSocket da Olymp é uma lista de eventos {e: código, d: dados}
+    let codigos = '?';
+    try { codigos = JSON.parse(d.txt).map((x) => x.e).join(','); } catch (e) { codigos = 'texto ' + d.txt.slice(0, 20).replace(/[0-9]+/g, '#'); }
+    const k = d.tipo + ' ' + codigos;
+    if (escuta[k]) { escuta[k].n++; escuta[k].ult = d.txt.slice(0, 500); return; }
+    if (Object.keys(escuta).length >= 60) return;
+    escuta[k] = { tipo: d.tipo, e: codigos, n: 1, tam: d.tam, ex: d.txt.slice(0, 500) };
   });
   function enviarEstado() {
     const rd = contaGlobal.dia === hojeTxt() ? (contaGlobal.resultadoDia || 0) : 0;
