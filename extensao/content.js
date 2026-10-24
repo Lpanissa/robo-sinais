@@ -4,6 +4,15 @@
   window.__roboSinais = true;
 
   const MINUTO = 60000;
+  // extensão atualizada com a aba aberta: o robô antigo para e pede F5 (em vez de dar "Extension context invalidated")
+  const vivo = () => { try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; } };
+  let morto = false;
+  function aposentar() {
+    if (morto) return; morto = true;
+    const p = document.getElementById('rs-painel');
+    if (p) p.innerHTML = '<div style="padding:12px;font:13px system-ui;color:#e7ecf3;background:#151d29">Robô de Sinais foi atualizado. Aperte <b>F5</b> nesta aba para usar a versão nova.</div>';
+  }
+  const repetir = (fn, ms) => { const id = setInterval(() => { if (!vivo()) { clearInterval(id); aposentar(); return; } try { const r = fn(); if (r && r.catch) r.catch(() => {}); } catch (e) { if (!vivo()) { clearInterval(id); aposentar(); } } }, ms); return id; };
   const RETORNO = 0.85; // retorno médio da Olymp no acerto, usado nas contas do teste
   const EMPATE = (100 / (1 + RETORNO));
   const PADRAO = {
@@ -199,7 +208,7 @@
     if (v.length > 8000) v.splice(0, v.length - 8000);
     if (Date.now() - salvoEm > 30000) { salvoEm = Date.now(); chrome.storage.local.set({ [chaveHist(a.titulo)]: v }); }
   }
-  setInterval(coletar, 1000);
+  repetir(coletar, 1000);
   function agregar(v1, tf) {
     if (tf === 1) return v1.slice();
     const out = [];
@@ -612,7 +621,7 @@
       } finally { fechando = false; }
     }
   }
-  setInterval(() => { vigiarFechamento().catch(() => {}); }, 700);
+  repetir(() => vigiarFechamento(), 700);
 
   // resultado pela cotação (não pelo saldo, que mistura as operações das outras janelas)
   async function conferir(reg) {
@@ -812,7 +821,7 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
   chrome.storage.local.get('cfg', (r) => { cfg = { ...PADRAO, ...(r.cfg || {}) }; montarPainel(); });
 
   let rodando = false;
-  setInterval(async () => {
+  repetir(async () => {
     if (!rodando) {
       rodando = true;
       try {
