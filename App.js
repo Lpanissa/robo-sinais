@@ -6,6 +6,7 @@ import { ATIVOS, conectar } from './src/dados';
 import { ESTRATEGIAS } from './src/estrategias';
 import { criarMotor, carregarHistorico, atualizar, placar } from './src/motor';
 import Grafico from './src/Grafico';
+import HistoricoPC from './src/HistoricoPC';
 import { C } from './src/tema';
 
 const PADRAO = { ativo: 'BTCUSDT', expira: 3, rigor: 2.5, painel: 'conf', banca: 500, valor: 10, retorno: 85, chave: '' };
@@ -70,6 +71,7 @@ export default function App() {
   const [largura, setLargura] = useState(0);
   const [som, setSom] = useState(false);
   const [rascunho, setRascunho] = useState({});
+  const [tela, setTela] = useState('pc');
   const motor = useRef(criarMotor());
   const cfgRef = useRef(cfg);
   const somRef = useRef(false);
@@ -198,6 +200,11 @@ export default function App() {
               )}
             </View>
           </View>
+          <View style={s.chips}>
+            <Chip texto="Robô no PC" ativo={tela === 'pc'} onPress={() => setTela('pc')} />
+            <Chip texto="Sinais ao vivo" ativo={tela === 'sinais'} onPress={() => setTela('sinais')} />
+          </View>
+          {tela === 'pc' ? <HistoricoPC /> : (<>
           <View style={s.linhaCentro}>
             <View style={[s.ponto, { backgroundColor: corStatus }]} />
             <Text style={[s.status, { color: corStatus }]}>{status.texto}</Text>
@@ -328,6 +335,7 @@ export default function App() {
             <Text style={s.botaoTxt}>Zerar contagem a partir de agora</Text>
           </Pressable>
           <Text style={s.nota}>Bitcoin e Ethereum vêm da Binance, ao vivo. Os pares de forex e o ouro precisam da chave e atualizam a cada minuto, só em dia útil (no fim de semana o forex fica fechado). As operações são só para análise: nada é enviado para a corretora. Resultado passado não garante resultado futuro.</Text>
+          </>)}
         </View>
       </ScrollView>
     </SafeAreaView>
