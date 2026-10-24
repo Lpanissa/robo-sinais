@@ -162,8 +162,8 @@ export const ESTRATEGIAS = [
     id: 'engolfo', nome: 'Engolfo', desc: 'Vela que engole a anterior na direção contrária', imediato: true,
     fn(I, rigor, v) {
       const a = v[v.length - 2], b = I.last;
-      if (a.c < a.o && b.c > b.o && b.c > a.o && b.o < a.c) return { dir: 'up', ready: true };
-      if (a.c > a.o && b.c < b.o && b.c < a.o && b.o > a.c) return { dir: 'down', ready: true };
+      if (a.c < a.o && b.c > b.o && b.c > a.o && b.o <= a.c) return { dir: 'up', ready: true };
+      if (a.c > a.o && b.c < b.o && b.c < a.o && b.o >= a.c) return { dir: 'down', ready: true };
       return {};
     },
   },
@@ -183,7 +183,7 @@ export const ESTRATEGIAS = [
       const a = v[v.length - 2], b = I.last;
       const ca = Math.abs(a.c - a.o), cb = Math.abs(b.c - b.o);
       if (ca < I.atr * 0.8 || cb > ca * 0.5) return {};
-      const dentro = Math.max(b.o, b.c) < Math.max(a.o, a.c) && Math.min(b.o, b.c) > Math.min(a.o, a.c);
+      const dentro = Math.max(b.o, b.c) <= Math.max(a.o, a.c) && Math.min(b.o, b.c) >= Math.min(a.o, a.c);
       if (!dentro) return {};
       return a.c < a.o ? { dir: 'up', ready: true } : { dir: 'down', ready: true };
     },
