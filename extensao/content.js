@@ -539,8 +539,8 @@
       if (r.width > 420 || r.height > 180 || r.width < 60) continue;
       lista.push({ el, top: r.top });
     }
-    // fica só com o maior de cada (o cartão inteiro, não os pedaços dentro dele)
-    const max = lista.filter((x) => !lista.some((y) => y !== x && y.el.contains(x.el)));
+    // fica com o menor elemento de cada ordem: o clique nele sobe até o cartão (clicar na lista inteira não abre nada)
+    const max = lista.filter((x) => !lista.some((y) => y !== x && x.el.contains(y.el)));
     return max.sort((x, y) => x.top - y.top).map((x) => x.el);
   }
   const acharCardOrdem = () => acharCards()[0] || null;
