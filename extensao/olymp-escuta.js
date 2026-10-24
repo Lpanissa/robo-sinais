@@ -7,7 +7,12 @@
   const enviar = (tipo, url, dado) => {
     try {
       let txt = typeof dado === 'string' ? dado : dado instanceof ArrayBuffer ? '[binário ' + dado.byteLength + ' bytes]' : dado instanceof Blob ? '[blob ' + dado.size + ' bytes]' : String(dado);
-      window.postMessage({ __rsEscuta: true, tipo, url: String(url || '').slice(0, 200), txt: txt.slice(0, 1500), tam: txt.length }, '*');
+      // códigos dos eventos da mensagem inteira (antes de cortar o texto)
+      let codigos = '';
+      if (/^ws-/.test(tipo)) { try { codigos = JSON.parse(txt).map((x) => x.e).join(','); } catch (e) { codigos = '?'; } }
+      // mensagens de negociação (deal) e de velas vão mais longas, para estudar o formato
+      const longo = /deal|candle|"e":10[,}]/.test(txt.slice(0, 3000));
+      window.postMessage({ __rsEscuta: true, tipo, url: String(url || '').slice(0, 200), txt: txt.slice(0, longo ? 2500 : 1500), tam: txt.length, codigos }, '*');
     } catch (e) { /* ignora */ }
   };
 

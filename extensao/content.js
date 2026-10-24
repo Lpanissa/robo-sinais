@@ -833,12 +833,12 @@
     if (ev.source !== window || !d || !d.__rsEscuta) return;
     if (!/^ws-/.test(d.tipo)) return; // só o WebSocket (é por ele que vêm cotações e velas); fetch tem dados de login
     // cada mensagem do WebSocket da Olymp é uma lista de eventos {e: código, d: dados}
-    let codigos = '?';
-    try { codigos = JSON.parse(d.txt).map((x) => x.e).join(','); } catch (e) { codigos = 'texto ' + d.txt.slice(0, 20).replace(/[0-9]+/g, '#'); }
+    const codigos = d.codigos || '?';
     const k = d.tipo + ' ' + codigos;
-    if (escuta[k]) { escuta[k].n++; escuta[k].ult = d.txt.slice(0, 500); return; }
-    if (Object.keys(escuta).length >= 60) return;
-    escuta[k] = { tipo: d.tipo, e: codigos, n: 1, tam: d.tam, ex: d.txt.slice(0, 500) };
+    const tam = /deal|candle/.test(d.txt) ? 2500 : 400;
+    if (escuta[k]) { escuta[k].n++; if (/deal|candle/.test(d.txt)) escuta[k].ult = d.txt.slice(0, tam); return; }
+    if (Object.keys(escuta).length >= 80) return;
+    escuta[k] = { tipo: d.tipo, e: codigos, n: 1, tam: d.tam, ex: d.txt.slice(0, tam) };
   });
   function enviarEstado() {
     const rd = contaGlobal.dia === hojeTxt() ? (contaGlobal.resultadoDia || 0) : 0;
