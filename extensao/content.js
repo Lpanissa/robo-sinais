@@ -181,7 +181,14 @@
   let livreAte = 0; // não abre outra operação antes da anterior terminar
   const sessao = { ops: [], perdasSeguidas: 0, resultado: 0, parado: '' };
 
-  const salvar = () => chrome.storage.local.set({ cfg });
+  // salva e manda para o app (quando a mudança foi feita aqui no PC)
+  let aplicandoRemoto = false, ultimoRev = 0, envioCfg = null;
+  const salvar = () => {
+    chrome.storage.local.set({ cfg });
+    if (aplicandoRemoto) return;
+    clearTimeout(envioCfg);
+    envioCfg = setTimeout(() => { cfg.rev = Math.max(ultimoRev, cfg.rev || 0) + 1; ultimoRev = cfg.rev; chrome.storage.local.set({ cfg }); enviarCfg(); }, 800);
+  };
   function status(t, tipo) { statusTxt = t; statusTipo = tipo; }
 
   // ---------- velas montadas com o preço da tela (OTC e ativos sem cotação externa) ----------
@@ -766,6 +773,45 @@
   }
   setTimeout(() => { conferirOrfas().catch(() => {}); }, 20000);
   repetir(() => conferirOrfas(), 120000);
+
+  // ---------- controle pelo app do celular ----------
+  // o que o app pode mudar
+  const CHAVES_APP = ['ligado', 'autoAtivo', 'sempreLeitura', 'modo', 'modoValor', 'valor', 'percent', 'maxPerdasSeguidas', 'limitePerda',
+    'metaGanhoDia', 'limitePerdaDia', 'maxAbertas', 'minAcerto', 'minOps', 'fecharModo', 'fecharAlvo', 'fecharManuais', 'expira', 'estrategia', 'tfManual'];
+  const msg = (m) => new Promise((ok) => { try { if (!vivo()) return ok(null); chrome.runtime.sendMessage(m, (r) => { void chrome.runtime.lastError; ok(r || null); }); } catch (e) { ok(null); } });
+  function cfgParaApp() { const o = {}; for (const k of CHAVES_APP) o[k] = cfg[k]; return o; }
+  function enviarCfg() { msg({ tipo: 'controle-cfg', cfg: cfgParaApp(), rev: cfg.rev || 0 }); }
+  async function sincronizarApp() {
+    const r = await msg({ tipo: 'controle-ler' });
+    if (!r || !r.ok) return;
+    const c = r.c;
+    if (!c) { cfg.rev = Math.max(cfg.rev || 0, 1); ultimoRev = cfg.rev; chrome.storage.local.set({ cfg }); enviarCfg(); return; }
+    ultimoRev = Math.max(ultimoRev, c.rev || 0);
+    if ((c.rev || 0) > (cfg.rev || 0) && c.origem !== 'pc' && c.cfg) {
+      const ligou = c.cfg.ligado && !cfg.ligado;
+      aplicandoRemoto = true;
+      try {
+        for (const k of CHAVES_APP) if (k in c.cfg) cfg[k] = c.cfg[k];
+        cfg.rev = c.rev;
+        if (ligou) { sessao.parado = ''; sessao.perdasSeguidas = 0; const cg = await lerConta(); if (cg.parado) { cg.parado = ''; cg.perdasSeguidas = 0; await gravarConta(cg); } }
+        salvar();
+      } finally { aplicandoRemoto = false; }
+      status('Ajustes mudados pelo app do celular', 'ok');
+      desenhar(true);
+    } else if ((c.rev || 0) < (cfg.rev || 0)) enviarCfg();
+  }
+  function enviarEstado() {
+    const rd = contaGlobal.dia === hojeTxt() ? (contaGlobal.resultadoDia || 0) : 0;
+    const ct = String(conta() || '');
+    msg({ tipo: 'controle-estado', aba: ABA, estado: {
+      versao: (() => { try { return chrome.runtime.getManifest().version; } catch (e) { return ''; } })(), ligado: !!cfg.ligado, ativo: ativo ? ativo.titulo : '', status: statusTxt,
+      conta: /demo/i.test(ct) ? 'demo' : 'real', hoje: Math.round(rd * 100) / 100, parado: contaGlobal.parado || '',
+      abertas: sessao.ops.filter((x) => x.situacao === 'em andamento').length, fechar: fecharInfo || '',
+    } });
+  }
+  setTimeout(() => { sincronizarApp(); enviarEstado(); }, 5000);
+  repetir(() => sincronizarApp(), 15000);
+  repetir(() => enviarEstado(), 30000);
 
   // ---------- limites do dia (meta de ganho e limite de perda; zeram à meia-noite) ----------
   const hojeTxt = () => { const d = new Date(); return `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`; };

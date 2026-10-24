@@ -65,7 +65,34 @@ async function enviarFila(nova) {
   } catch (e) { /* sem internet: tenta de novo na próxima ordem */ } finally { enviando = false; }
 }
 
+// ---------- controle pelo app do celular (tabela sinais_controle) ----------
+const SB_CTRL = 'https://fyxksvydxwvygjebanno.supabase.co/rest/v1/sinais_controle';
+const sbHeaders = () => ({ apikey: SB_CHAVE, Authorization: 'Bearer ' + SB_CHAVE, 'Content-Type': 'application/json', 'x-codigo': CODIGO });
+async function lerControle() {
+  const r = await fetch(SB_CTRL + '?select=*&codigo=eq.' + encodeURIComponent(CODIGO), { headers: sbHeaders() });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return (await r.json())[0] || null;
+}
+async function gravarControle(campos) {
+  const r = await fetch(SB_CTRL + '?on_conflict=codigo', {
+    method: 'POST', headers: { ...sbHeaders(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify([{ codigo: CODIGO, ...campos, atualizado_em: new Date().toISOString() }]),
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+}
+async function gravarEstado(aba, estado) {
+  const atual = await lerControle().catch(() => null);
+  const mapa = (atual && atual.estado && typeof atual.estado === 'object') ? atual.estado : {};
+  const agora = Date.now();
+  for (const k of Object.keys(mapa)) if (!mapa[k] || agora - (mapa[k].ts || 0) > 3 * 60000) delete mapa[k];
+  mapa[aba] = { ...estado, ts: agora };
+  await gravarControle({ estado: mapa, estado_em: new Date().toISOString() });
+}
+
 chrome.runtime.onMessage.addListener((m, _s, responder) => {
+  if (m.tipo === 'controle-ler') { lerControle().then((c) => responder({ ok: true, c })).catch((e) => responder({ ok: false, erro: e.message })); return true; }
+  if (m.tipo === 'controle-cfg') { gravarControle({ cfg: m.cfg, rev: m.rev, origem: 'pc' }).then(() => responder({ ok: true })).catch((e) => responder({ ok: false, erro: e.message })); return true; }
+  if (m.tipo === 'controle-estado') { gravarEstado(m.aba, m.estado).then(() => responder({ ok: true })).catch(() => responder({ ok: false })); return true; }
   if (m.tipo === 'ordem') { enviarFila(m.linha).then(() => responder({ ok: true })).catch(() => responder({ ok: false })); return true; }
   if (m.tipo !== 'velas') return false;
   velas(m).then((v) => responder({ ok: true, velas: v })).catch((e) => responder({ ok: false, erro: e.message }));
