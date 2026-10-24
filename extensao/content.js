@@ -522,12 +522,53 @@
     if (!isFinite(v)) return null;
     return /[\-−–]/.test(m[1] + m[2]) ? -v : v;
   }
-  let fechando = false;
+  let fechando = false, ultimaAbertura = 0, fecharInfo = '';
+  const visivel = (el) => el && el.offsetParent && !el.closest('#rs-painel');
+  const acharBotoesFechar = () => [...document.querySelectorAll('button, [role="button"]')].filter((b) => /fechar antes|close early/i.test(b.innerText || '') && visivel(b) && !b.disabled);
+  // cartão da ordem aberta na lista: pequeno, com cronômetro (00:45) e valor (US$1)
+  function acharCardOrdem() {
+    const lista = [];
+    for (const el of document.querySelectorAll('div, li, a, button, [data-test]')) {
+      if (!visivel(el)) continue;
+      const t = el.innerText || '';
+      if (t.length < 6 || t.length > 160 || /fechar antes|close early/i.test(t)) continue;
+      if (!/\b\d{1,2}:\d{2}\b/.test(t) || !/(US\$|R\$|\$|€)\s*\d/.test(t)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 420 || r.height > 180 || r.width < 60) continue;
+      let pts = 0;
+      if (/deal|trade|position|order/i.test(el.getAttribute('data-test') || '')) pts += 2;
+      if (ativo && t.toLowerCase().includes(String(ativo.titulo).toLowerCase().slice(0, 6))) pts += 1;
+      lista.push({ el, pts, area: r.width * r.height });
+    }
+    lista.sort((a, b) => b.pts - a.pts || b.area - a.area);
+    return lista[0] ? lista[0].el : null;
+  }
+  async function abrirPainelDaOrdem() {
+    let card = acharCardOrdem();
+    if (!card) {
+      const bt = [...document.querySelectorAll('button, [role="button"], a, [data-test]')].find((b) => {
+        if (!visivel(b)) return false;
+        const t = (b.innerText || b.getAttribute('aria-label') || b.title || '').trim();
+        return t.length < 30 && /^(negocia|trades|operaç)/i.test(t);
+      });
+      if (bt) { bt.click(); await espera(900); card = acharCardOrdem(); }
+    }
+    if (card) { card.click(); await espera(900); }
+  }
   async function vigiarFechamento() {
     if (fechando || !cfg.ligado || !(cfg.fecharAlvo > 0)) return;
     const minhas = sessao.ops.filter((r) => r.situacao === 'em andamento' && r.fechouAntes == null);
-    if (!minhas.length) return;
-    const botoes = [...document.querySelectorAll('button, [role="button"]')].filter((b) => /fechar antes|close early/i.test(b.innerText || '') && b.offsetParent && !b.disabled);
+    if (!minhas.length) { fecharInfo = cfg.ligado && cfg.fecharAlvo > 0 ? 'esperando uma ordem abrir' : ''; return; }
+    let botoes = acharBotoesFechar();
+    // sem o botão na tela: abre a lista de negociações e clica na ordem aberta
+    if (!botoes.length) {
+      if (operando || Date.now() - ultimaAbertura < 4000) return;
+      ultimaAbertura = Date.now();
+      await abrirPainelDaOrdem();
+      botoes = acharBotoesFechar();
+      if (!botoes.length) { fecharInfo = 'não achei o botão "Fechar antes" (deixe a lista de negociações aberta)'; return; }
+    }
+    fecharInfo = 'vigiando a ordem aberta';
     for (const b of botoes) {
       let v = lerValor(b.innerText || '');
       if (v == null && b.parentElement) v = lerValor((b.parentElement.innerText || '').split(/fechar antes|close early/i).pop());
@@ -698,6 +739,7 @@
 
     const topo = `
 <div class="rs-st"><span class="rs-dot" style="background:${cor}"></span><span>${esc(statusTxt)}</span></div>
+${cfg.fecharAlvo > 0 && fecharInfo ? `<div class="rs-st" style="color:#8b97a8">Fechar antes: ${esc(fecharInfo)}</div>` : ""}
 ${real ? `<div class="rs-real">CONTA REAL: as operações usam dinheiro de verdade</div>` : `<div class="rs-l">Conta: ${esc(ct || '?')}</div>`}
 ${comb}
 <div class="rs-sinal"><div class="rs-ic" style="background:${sinal.bg};color:#0e141d;font-weight:800;font-size:20px">${sinal.ic}</div><div><div class="rs-t">${esc(sinal.t)}</div><div class="rs-mono" style="color:#8b97a8;font-size:12px">${esc(sinal.s)}</div></div></div>
