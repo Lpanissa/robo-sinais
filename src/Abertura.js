@@ -1,14 +1,17 @@
-// abertura do app: as velas do logo subindo e descendo, no fundo escuro
+// abertura do app: as velas do logo entram uma de cada vez, no fundo escuro
+// verde sobe, vermelha desce, verde sobe (movimento firme, sem efeito de mola)
 import React, { useEffect, useRef } from 'react';
 import { View, Animated, Easing, StyleSheet } from 'react-native';
 import { C } from './tema';
 
-function Vela({ cor, altura, base, v }) {
-  // corpo e pavio crescem e encolhem juntos (escala vertical a partir da base)
-  const escala = v.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
+const CURSO = 46; // quanto cada vela anda até o lugar dela
+
+function Vela({ cor, altura, base, v, sobe }) {
+  const y = v.interpolate({ inputRange: [0, 1], outputRange: [sobe ? CURSO : -CURSO, 0] });
+  const op = v.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 1, 1] });
   return (
-    <View style={{ width: 34, height: 170, justifyContent: 'flex-end', alignItems: 'center', marginBottom: base }}>
-      <Animated.View style={{ alignItems: 'center', transform: [{ translateY: Animated.multiply(Animated.subtract(1, escala), altura / 2) }, { scaleY: escala }] }}>
+    <View style={{ width: 34, height: 170 + CURSO, justifyContent: 'flex-end', alignItems: 'center', marginBottom: base }}>
+      <Animated.View style={{ alignItems: 'center', opacity: op, transform: [{ translateY: y }] }}>
         <View style={{ width: 6, height: altura * 0.22, borderRadius: 3, backgroundColor: cor }} />
         <View style={{ width: 34, height: altura * 0.56, borderRadius: 7, backgroundColor: cor }} />
         <View style={{ width: 6, height: altura * 0.22, borderRadius: 3, backgroundColor: cor }} />
@@ -19,24 +22,28 @@ function Vela({ cor, altura, base, v }) {
 
 export default function Abertura({ saindo }) {
   const a = useRef(new Animated.Value(0)).current;
-  const b = useRef(new Animated.Value(1)).current;
+  const b = useRef(new Animated.Value(0)).current;
   const c = useRef(new Animated.Value(0)).current;
   const ponto = useRef(new Animated.Value(0)).current;
   const fundo = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const vai = (v, de, para, atraso) => Animated.loop(Animated.sequence([
-      Animated.delay(atraso),
-      Animated.timing(v, { toValue: para, duration: 420, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      Animated.timing(v, { toValue: de, duration: 420, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    const entra = (v) => Animated.timing(v, { toValue: 1, duration: 360, easing: Easing.out(Easing.cubic), useNativeDriver: true });
+    const some = (v) => Animated.timing(v, { toValue: 0, duration: 220, easing: Easing.in(Easing.quad), useNativeDriver: true });
+    // verde sobe, vermelha desce, verde sobe; segura um pouco; somem juntas e recomeça
+    const velas = Animated.loop(Animated.sequence([
+      entra(a), entra(b), entra(c),
+      Animated.delay(700),
+      Animated.parallel([some(a), some(b), some(c)]),
+      Animated.delay(120),
     ]));
-    const anims = [vai(a, 0, 1, 0), vai(b, 1, 0, 140), vai(c, 0, 1, 280),
-      Animated.loop(Animated.sequence([
-        Animated.timing(ponto, { toValue: 1, duration: 600, useNativeDriver: true }),
-        Animated.timing(ponto, { toValue: 0, duration: 600, useNativeDriver: true }),
-      ]))];
-    anims.forEach((x) => x.start());
-    return () => anims.forEach((x) => x.stop());
+    const pisca = Animated.loop(Animated.sequence([
+      Animated.timing(ponto, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(ponto, { toValue: 0, duration: 600, useNativeDriver: true }),
+    ]));
+    velas.start();
+    pisca.start();
+    return () => { velas.stop(); pisca.stop(); };
   }, [a, b, c, ponto]);
 
   useEffect(() => {
@@ -46,13 +53,13 @@ export default function Abertura({ saindo }) {
   return (
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.raiz, { opacity: fundo }]}>
       <View style={s.linha}>
-        <Vela cor={C.alta} altura={130} base={0} v={a} />
-        <Vela cor={C.baixa} altura={120} base={34} v={b} />
+        <Vela cor={C.alta} altura={130} base={0} v={a} sobe />
+        <Vela cor={C.baixa} altura={120} base={34} v={b} sobe={false} />
         <View style={{ alignItems: 'center' }}>
           <Animated.View style={[s.ponto, { opacity: ponto.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }), transform: [{ scale: ponto.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.15] }) }] }]}>
             <View style={s.miolo} />
           </Animated.View>
-          <Vela cor={C.alta} altura={160} base={70} v={c} />
+          <Vela cor={C.alta} altura={160} base={70} v={c} sobe />
         </View>
       </View>
     </Animated.View>

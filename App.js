@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, Platform, Vibration, SafeAreaView } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, Platform, Vibration, SafeAreaView, PermissionsAndroid } from 'react-native';
+import { requireOptionalNativeModule } from 'expo';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ATIVOS, conectar } from './src/dados';
@@ -11,6 +12,16 @@ import Atualizacao from './src/Atualizacao';
 import Abertura from './src/Abertura';
 import ControleRobo from './src/ControleRobo';
 import { C } from './src/tema';
+
+// avisos de lucro: pede a permissão de notificação e liga o vigia (continua rodando com o app fechado)
+const NATIVO = Platform.OS === 'android' ? requireOptionalNativeModule('RoboNative') : null;
+async function ligarAvisosDeLucro() {
+  if (!NATIVO || !NATIVO.ligarAvisos) return;
+  try {
+    if (Platform.Version >= 33) await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS');
+    NATIVO.ligarAvisos();
+  } catch (e) { /* tenta na próxima abertura */ }
+}
 
 const PADRAO = { ativo: 'BTCUSDT', expira: 3, rigor: 2.5, painel: 'conf', banca: 500, valor: 10, retorno: 85, chave: '' };
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'ui-monospace, Consolas, monospace' });
@@ -76,6 +87,7 @@ export default function App() {
   const [rascunho, setRascunho] = useState({});
   const [tela, setTela] = useState('pc');
   const [intro, setIntro] = useState(2); // 2 = mostrando, 1 = sumindo, 0 = fora
+  useEffect(() => { ligarAvisosDeLucro(); }, []);
   useEffect(() => { const a = setTimeout(() => setIntro(1), 1700); const b = setTimeout(() => setIntro(0), 2050); return () => { clearTimeout(a); clearTimeout(b); }; }, []);
   const motor = useRef(criarMotor());
   const cfgRef = useRef(cfg);

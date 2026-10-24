@@ -12,6 +12,12 @@ class RoboModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("RoboNative")
 
+    // liga o vigia que avisa cada ordem com lucro (fica ligado mesmo com o app fechado)
+    Function("ligarAvisos") {
+      ctx.getSharedPreferences("robosinais", Context.MODE_PRIVATE).edit().putBoolean("avisosLigados", true).apply()
+      AvisoService.iniciar(ctx)
+      true
+    }
     Function("definirVersao") { sha: String -> Updater.definirVersao(ctx, sha); true }
     AsyncFunction("verAtualizacao") { promise: Promise ->
       Thread { promise.resolve(Updater.verificar(ctx)) }.start()
