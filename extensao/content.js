@@ -724,6 +724,8 @@
     }
     if (a === 'zerar') { sessao.ops.length = 0; sessao.resultado = 0; sessao.perdasSeguidas = 0; sessao.parado = ''; gravarConta({ abertas: {}, resultado: 0, perdasSeguidas: 0, ganhos: 0, perdas: 0, parado: '' }); desenhar(true); }
     if (a === 'geral') rodarRankingGeral();
+    // só opera o que passou com folga nas duas partes do teste; troca de ativo sozinho para achar o melhor
+    if (a === 'assertivo') { Object.assign(cfg, { minAcerto: 60, minOps: 60, sempreLeitura: 0, modo: 'todas', autoAtivo: 1 }); ultimaEscolha = 0; salvar(); desenhar(true); }
   }
 
   function desenhar(refazerForm) {
@@ -795,6 +797,7 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
 <label>Sinais mínimos no teste<input data-k="minOps" value="${cfg.minOps}" inputmode="numeric"></label>
 </div>
 <label>Chave Twelve Data (forex)<input data-k="chave" type="password" value="${esc(cfg.chave)}" placeholder="Cole a chave aqui"></label>
+<button class="rs-b" data-a="assertivo" style="background:#e5a93a;color:#0e141d;font-size:12px;padding:7px">Modo mais assertivo (só acima de 60% no teste)</button>
 <button class="rs-b" data-a="zerar" style="background:#253042;color:#e7ecf3;font-size:12px;padding:7px">Zerar contagem da sessão</button>`;
 
     let topoEl = corpo.querySelector('#rs-topo');
