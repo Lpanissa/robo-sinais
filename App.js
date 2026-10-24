@@ -8,6 +8,8 @@ import { criarMotor, carregarHistorico, atualizar, placar } from './src/motor';
 import Grafico from './src/Grafico';
 import HistoricoPC from './src/HistoricoPC';
 import Atualizacao from './src/Atualizacao';
+import Abertura from './src/Abertura';
+import ControleRobo from './src/ControleRobo';
 import { C } from './src/tema';
 
 const PADRAO = { ativo: 'BTCUSDT', expira: 3, rigor: 2.5, painel: 'conf', banca: 500, valor: 10, retorno: 85, chave: '' };
@@ -73,6 +75,8 @@ export default function App() {
   const [som, setSom] = useState(false);
   const [rascunho, setRascunho] = useState({});
   const [tela, setTela] = useState('pc');
+  const [intro, setIntro] = useState(2); // 2 = mostrando, 1 = sumindo, 0 = fora
+  useEffect(() => { const a = setTimeout(() => setIntro(1), 1700); const b = setTimeout(() => setIntro(0), 2050); return () => { clearTimeout(a); clearTimeout(b); }; }, []);
   const motor = useRef(criarMotor());
   const cfgRef = useRef(cfg);
   const somRef = useRef(false);
@@ -207,7 +211,7 @@ export default function App() {
             <Chip texto="Robô no PC" ativo={tela === 'pc'} onPress={() => setTela('pc')} />
             <Chip texto="Sinais ao vivo" ativo={tela === 'sinais'} onPress={() => setTela('sinais')} />
           </View>
-          {tela === 'pc' ? <HistoricoPC /> : (<>
+          {tela === 'pc' ? <View style={{ gap: 12 }}><ControleRobo /><HistoricoPC /></View> : (<>
           <View style={s.linhaCentro}>
             <View style={[s.ponto, { backgroundColor: corStatus }]} />
             <Text style={[s.status, { color: corStatus }]}>{status.texto}</Text>
@@ -341,6 +345,7 @@ export default function App() {
           </>)}
         </View>
       </ScrollView>
+      {intro > 0 && <Abertura saindo={intro === 1} />}
     </SafeAreaView>
   );
 }

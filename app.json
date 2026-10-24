@@ -2,13 +2,13 @@
   "expo": {
     "name": "Robô de Sinais",
     "slug": "robo-sinais",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0e141d",
     "android": {
       "package": "com.panissa.robosinais",
-      "versionCode": 4,
+      "versionCode": 5,
       "permissions": [
         "VIBRATE"
       ],
@@ -26,6 +26,16 @@
       "backgroundColor": "#0e141d",
       "favicon": "./assets/icon.png"
     },
-    "icon": "./assets/icon.png"
+    "icon": "./assets/icon.png",
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0e141d",
+          "image": "./assets/adaptive-icon.png",
+          "imageWidth": 200
+        }
+      ]
+    ]
   }
 }

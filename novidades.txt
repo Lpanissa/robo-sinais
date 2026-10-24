@@ -1,1 +1,1 @@
-Agora o app se atualiza sozinho: quando sai versão nova, ele baixa e abre a instalação. Depois de atualizar, mostra aqui o que mudou.
+Controle do robô do PC pelo app: ligar e desligar e todas as configurações (metas do dia, fechar antes, valor, modo mais assertivo e o resto). Abertura com as velas animadas no lugar da tela branca. O app passa a se atualizar sozinho.

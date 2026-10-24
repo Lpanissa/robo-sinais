@@ -28,6 +28,9 @@ jobs:
       - name: Instalar dependencias
         run: npm install --no-audit --no-fund
 
+      - name: Alinhar versoes ao Expo SDK
+        run: npx expo install --fix
+
       - name: Gerar projeto Android
         run: npx expo prebuild --platform android --no-install
 
