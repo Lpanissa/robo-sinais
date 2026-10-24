@@ -522,27 +522,28 @@
     if (!isFinite(v)) return null;
     return /[\-−–]/.test(m[1] + m[2]) ? -v : v;
   }
-  let fechando = false, ultimaAbertura = 0, fecharInfo = '';
+  let fechando = false, ultimaAbertura = 0, fecharInfo = '', rodizio = 0;
   const visivel = (el) => el && el.offsetParent && !el.closest('#rs-painel');
   const acharBotoesFechar = () => [...document.querySelectorAll('button, [role="button"]')].filter((b) => /fechar antes|close early/i.test(b.innerText || '') && visivel(b) && !b.disabled);
-  // cartão da ordem aberta na lista: pequeno, com cronômetro (00:45) e valor (US$1)
-  function acharCardOrdem() {
+  // cartões das ordens abertas na lista (fechados): pequenos, com um cronômetro (00:45) e valor (Đ 1,00 / US$1)
+  function acharCards() {
     const lista = [];
+    // ordem já aberta (com o botão aparecendo) não entra, senão o clique fecharia ela
+    const abertas = acharBotoesFechar().map((b) => { let el = b; for (let i = 0; i < 8 && el; i++, el = el.parentElement) if (/\b\d{1,2}:\d{2}\b/.test(el.innerText || "") && /\d\s*%/.test(el.innerText || "")) return el; return null; }).filter(Boolean);
     for (const el of document.querySelectorAll('div, li, a, button, [data-test]')) {
-      if (!visivel(el)) continue;
+      if (!visivel(el) || abertas.some((a) => a.contains(el))) continue;
       const t = el.innerText || '';
       if (t.length < 6 || t.length > 160 || /fechar antes|close early/i.test(t)) continue;
-      if (!/\b\d{1,2}:\d{2}\b/.test(t) || !/(US\$|R\$|\$|€|Đ|₫)\s*\d/.test(t)) continue;
+      if ((t.match(/\b\d{1,2}:\d{2}\b/g) || []).length !== 1 || !/(US\$|R\$|\$|€|Đ|₫)\s*\d/.test(t)) continue;
       const r = el.getBoundingClientRect();
       if (r.width > 420 || r.height > 180 || r.width < 60) continue;
-      let pts = 0;
-      if (/deal|trade|position|order/i.test(el.getAttribute('data-test') || '')) pts += 2;
-      if (ativo && t.toLowerCase().includes(String(ativo.titulo).toLowerCase().slice(0, 6))) pts += 1;
-      lista.push({ el, pts, area: r.width * r.height });
+      lista.push({ el, top: r.top });
     }
-    lista.sort((a, b) => b.pts - a.pts || b.area - a.area);
-    return lista[0] ? lista[0].el : null;
+    // fica só com o maior de cada (o cartão inteiro, não os pedaços dentro dele)
+    const max = lista.filter((x) => !lista.some((y) => y !== x && y.el.contains(x.el)));
+    return max.sort((x, y) => x.top - y.top).map((x) => x.el);
   }
+  const acharCardOrdem = () => acharCards()[0] || null;
   async function abrirPainelDaOrdem() {
     let card = acharCardOrdem();
     if (!card) {
@@ -570,14 +571,23 @@
     const minhas = cfg.ligado ? sessao.ops.filter((r) => r.situacao === 'em andamento' && r.fechouAntes == null) : [];
     if (!minhas.length && !cfg.fecharManuais) { fecharInfo = 'esperando uma ordem abrir'; return; }
     let botoes = acharBotoesFechar();
+    // a Olymp só mostra o "Fechar antes" depois de clicar na ordem: clica nas ordens da lista, revezando
+    if (!operando && Date.now() - ultimaAbertura > 4000) {
+      const cards = acharCards();
+      if (cards.length) {
+        ultimaAbertura = Date.now();
+        cards[rodizio++ % cards.length].click();
+        await espera(700);
+        botoes = acharBotoesFechar();
+      } else if (!botoes.length && minhas.length) {
+        ultimaAbertura = Date.now();
+        await abrirPainelDaOrdem(); // abre a lista de Negociações e clica na ordem
+        botoes = acharBotoesFechar();
+      }
+    }
     if (!botoes.length) {
-      // ordem do robô: abre a lista de negociações e clica na ordem aberta
-      if (!minhas.length) { fecharInfo = 'para as ordens manuais, deixe a lista de Negociações aberta na ordem'; return; }
-      if (operando || Date.now() - ultimaAbertura < 4000) return;
-      ultimaAbertura = Date.now();
-      await abrirPainelDaOrdem();
-      botoes = acharBotoesFechar();
-      if (!botoes.length) { fecharInfo = 'não achei o botão "Fechar antes" (deixe a lista de negociações aberta)'; return; }
+      fecharInfo = minhas.length ? 'não achei o botão "Fechar antes" (deixe a lista de Negociações aberta)' : 'para as ordens manuais, deixe a lista de Negociações aberta';
+      return;
     }
     fecharInfo = 'vigiando a ordem aberta';
     for (const b of botoes) {
