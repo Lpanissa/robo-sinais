@@ -63,4 +63,15 @@ export const ESTRATEGIAS = [
       return {};
     },
   },
+  {
+    id: 'estoc', nome: 'Estocástico contra a tendência', desc: 'Estocástico extremo só quando o preço esticou contra a média 200', imediato: true,
+    fn(I) {
+      const acima = I.last.c > I.e200[I.n];
+      if (I.st < 5 && !acima) return { dir: 'up', ready: true };
+      if (I.st > 95 && acima) return { dir: 'down', ready: true };
+      if (I.st < 12 && !acima) return { dir: 'up', near: true };
+      if (I.st > 88 && acima) return { dir: 'down', near: true };
+      return {};
+    },
+  },
 ];

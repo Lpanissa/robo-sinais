@@ -44,7 +44,7 @@ export function indicadores(velas) {
   const cl = velas.map((k) => k.c);
   const n = cl.length - 1;
   return {
-    cl, n, e9: ema(cl, 9), e21: ema(cl, 21), r: rsi(cl.slice(-200)), r2: rsi(cl.slice(-200), 2),
+    cl, n, e9: ema(cl, 9), e21: ema(cl, 21), e200: ema(cl, 200), r: rsi(cl.slice(-200)), r2: rsi(cl.slice(-200), 2),
     b: bollinger(cl), atr: atr(velas), st: estocastico(velas), last: velas[n],
   };
 }

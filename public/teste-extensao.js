@@ -88,7 +88,7 @@ function indicadores(velas) {
   const cl = velas.map((k) => k.c);
   const n = cl.length - 1;
   return {
-    cl, n, e9: ema(cl, 9), e21: ema(cl, 21), r: rsi(cl.slice(-200)), r2: rsi(cl.slice(-200), 2),
+    cl, n, e9: ema(cl, 9), e21: ema(cl, 21), e200: ema(cl, 200), r: rsi(cl.slice(-200)), r2: rsi(cl.slice(-200), 2),
     b: bollinger(cl), atr: atr(velas), st: estocastico(velas), last: velas[n],
   };
 }
@@ -154,6 +154,17 @@ const ESTRATEGIAS = [
       if (I.r2 > 95) return { dir: 'down', ready: true };
       if (I.r2 < 15) return { dir: 'up', near: true };
       if (I.r2 > 85) return { dir: 'down', near: true };
+      return {};
+    },
+  },
+  {
+    id: 'estoc', nome: 'Estocástico contra a tendência', desc: 'Estocástico extremo só quando o preço esticou contra a média 200', imediato: true,
+    fn(I) {
+      const acima = I.last.c > I.e200[I.n];
+      if (I.st < 5 && !acima) return { dir: 'up', ready: true };
+      if (I.st > 95 && acima) return { dir: 'down', ready: true };
+      if (I.st < 12 && !acima) return { dir: 'up', near: true };
+      if (I.st > 88 && acima) return { dir: 'down', near: true };
       return {};
     },
   },
