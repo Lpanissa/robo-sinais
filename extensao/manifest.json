@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Robô de Sinais - Piloto",
-  "version": "1.22.0",
+  "version": "1.23.0",
   "description": "Opera os sinais do Robô de Sinais na Olymp Trade e manda o histórico para o app.",
   "permissions": [
     "storage"
@@ -16,6 +16,16 @@
     "service_worker": "background.js"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "https://olymptrade.com/*"
+      ],
+      "js": [
+        "olymp-escuta.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
       "matches": [
         "https://olymptrade.com/*"

@@ -825,6 +825,19 @@
       desenhar(true);
     } else if ((c.rev || 0) < (cfg.rev || 0)) enviarCfg();
   }
+  // ---------- escuta dos dados da própria Olymp (olymp-escuta.js) ----------
+  // guarda uma amostra de cada tipo de mensagem para estudar o formato do gráfico da Olymp
+  const escuta = {};
+  window.addEventListener('message', (ev) => {
+    const d = ev.data;
+    if (ev.source !== window || !d || !d.__rsEscuta) return;
+    let caminho = d.url; try { const u = new URL(d.url, location.href); caminho = u.host + u.pathname; } catch (e) { /* fica a url */ }
+    const forma = d.txt.slice(0, 60).replace(/[0-9]+(\.[0-9]+)?/g, '#');
+    const k = d.tipo + ' ' + caminho + ' ' + forma;
+    if (escuta[k]) { escuta[k].n++; escuta[k].ult = d.txt.slice(0, 700); return; }
+    if (Object.keys(escuta).length >= 40) return;
+    escuta[k] = { tipo: d.tipo, url: caminho, n: 1, tam: d.tam, ex: d.txt.slice(0, 700) };
+  });
   function enviarEstado() {
     const rd = contaGlobal.dia === hojeTxt() ? (contaGlobal.resultadoDia || 0) : 0;
     const ct = String(conta() || '');
@@ -833,6 +846,7 @@
       conta: /demo/i.test(ct) ? 'demo' : 'real', hoje: Math.round(rd * 100) / 100, parado: contaGlobal.parado || '',
       abertas: sessao.ops.filter((x) => x.situacao === 'em andamento').length, fechar: fecharInfo || '',
       saldo: (q('[data-test="account-balance-value"]')?.innerText || '').trim(),
+      escuta: Object.values(escuta),
     } });
   }
   setTimeout(() => { sincronizarApp(); enviarEstado(); }, 5000);
