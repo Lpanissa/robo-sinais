@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, Platform, Vibration, SafeAreaView, PermissionsAndroid } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, Platform, Vibration, SafeAreaView, PermissionsAndroid, StatusBar as BarraRN } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -209,7 +209,7 @@ export default function App() {
       <ScrollView contentContainerStyle={s.scroll}>
         <View style={s.wrap}>
           <View style={s.topo}>
-            <Text style={s.h1}>Robô de Sinais</Text>
+            <View style={s.marca}><Text style={s.h1}>PanissAsset</Text><Text style={s.h1sub}>Olymp Trade</Text></View>
             <View style={s.linhaCentro}>
               {Platform.OS === 'web' && (
                 <Pressable onPress={ligarSom} style={[s.botao, som && { borderColor: C.destaque }]}>
@@ -364,7 +364,10 @@ export default function App() {
 
 const s = StyleSheet.create({
   raiz: { flex: 1, backgroundColor: C.fundo },
-  scroll: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40 },
+  // no Android a barra de cima (hora, bateria) fica por cima do app: desce o conteúdo a altura dela
+  scroll: { paddingHorizontal: 16, paddingTop: 16 + (Platform.OS === 'android' ? (BarraRN.currentHeight || 24) : 0), paddingBottom: 40 },
+  marca: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  h1sub: { color: C.suave, fontSize: 13, fontWeight: '600' },
   wrap: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: 12 },
   topo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   h1: { color: C.texto, fontSize: 24, fontWeight: '700' },
