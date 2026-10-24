@@ -578,6 +578,8 @@
       // duração que a Olymp realmente usou (pode ser diferente da combinação, se o campo não mudou)
       const durMin = ultimoPedido && clicouEm - ultimoPedido.em < 10000 && ultimoPedido.duracao ? ultimoPedido.duracao / 60 : c.exp;
       reg.duracao = durMin;
+      reg.fim = clicouEm + durMin * MINUTO;
+      reg.entradaPreco = precoDaTela() ?? sinal.entrada; // para a linha de entrada no gráfico do app
       reg.situacao = 'em andamento';
       ultimaEntrada = Date.now();
       enviarOrdem(reg);
@@ -999,9 +1001,19 @@
         conta: /demo/i.test(ct) ? 'demo' : 'real', ativo: reg.ativo || (ativo ? ativo.titulo : ''), estrategia: reg.estrategia || '',
         dir: reg.dir || '', valor: reg.valor ?? null, resultado: reg.resultado ?? null, situacao: reg.situacao || '',
         fechou_antes: reg.fechouAntes != null || /fechou antes/.test(reg.situacao || ''), se_fosse_ate_o_fim: reg.seFosseAteOFim ?? null,
+        entrada: reg.entradaPreco ?? null, fim: reg.fim ? new Date(reg.fim).toISOString() : null,
       } }, () => void chrome.runtime.lastError);
     } catch (e) { /* aba antiga */ }
   }
+  // gráfico ao vivo no app: com ordem aberta, manda as últimas velas e o preço deste ativo a cada 3 s
+  function enviarAoVivo() {
+    if (!ativo || !sessao.ops.some((r) => r.situacao === 'em andamento')) return;
+    const v = (colecao[ativo.titulo] || []).slice(-60).map((k) => ({ t: k.t, o: k.o, h: k.h, l: k.l, c: k.c }));
+    const preco = precoDaTela();
+    if (!v.length && preco == null) return;
+    try { chrome.runtime.sendMessage({ tipo: 'aovivo', ativo: ativo.titulo, velas: v, preco }, () => void chrome.runtime.lastError); } catch (e) {}
+  }
+  repetir(() => enviarAoVivo(), 3000);
   function registrar(r) {
     sessao.ops.unshift(r);
     if (sessao.ops.length > 30) sessao.ops.pop();

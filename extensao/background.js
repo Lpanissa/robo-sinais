@@ -93,6 +93,13 @@ chrome.runtime.onMessage.addListener((m, _s, responder) => {
   if (m.tipo === 'controle-ler') { lerControle().then((c) => responder({ ok: true, c })).catch((e) => responder({ ok: false, erro: e.message })); return true; }
   if (m.tipo === 'controle-cfg') { gravarControle({ cfg: m.cfg, rev: m.rev, origem: 'pc' }).then(() => responder({ ok: true })).catch((e) => responder({ ok: false, erro: e.message })); return true; }
   if (m.tipo === 'controle-estado') { gravarEstado(m.aba, m.estado).then(() => responder({ ok: true })).catch(() => responder({ ok: false })); return true; }
+  if (m.tipo === 'aovivo') {
+    fetch('https://fyxksvydxwvygjebanno.supabase.co/rest/v1/sinais_ao_vivo?on_conflict=codigo,ativo', {
+      method: 'POST', headers: { apikey: SB_CHAVE, Authorization: 'Bearer ' + SB_CHAVE, 'Content-Type': 'application/json', 'x-codigo': CODIGO, Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ codigo: CODIGO, ativo: m.ativo, velas: m.velas, preco: m.preco, atualizado_em: new Date().toISOString() }]),
+    }).then(() => responder({ ok: true })).catch(() => responder({ ok: false }));
+    return true;
+  }
   if (m.tipo === 'ordem') { enviarFila(m.linha).then(() => responder({ ok: true })).catch(() => responder({ ok: false })); return true; }
   if (m.tipo !== 'velas') return false;
   velas(m).then((v) => responder({ ok: true, velas: v })).catch((e) => responder({ ok: false, erro: e.message }));
