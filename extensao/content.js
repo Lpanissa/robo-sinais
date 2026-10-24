@@ -513,7 +513,7 @@
   // lê os botões "Fechar antes +US$x" da lista de negociações da Olymp
   function lerValor(txt) {
     const t = txt.replace(/fechar antes|close early|fechar|close/gi, '').replace(/\s+/g, '');
-    const m = t.match(/([+\-−–]?)(?:US\$|R\$|\$|€)?([+\-−–]?)(\d[\d.,]*)/);
+    const m = t.match(/([+\-−–]?)[^\d+\-−–]{0,4}([+\-−–]?)(\d[\d.,]*)/);
     if (!m) return null;
     let n = m[3];
     if (n.includes(',') && n.includes('.')) n = n.lastIndexOf(',') > n.lastIndexOf('.') ? n.replace(/\./g, '').replace(',', '.') : n.replace(/,/g, '');
@@ -532,7 +532,7 @@
       if (!visivel(el)) continue;
       const t = el.innerText || '';
       if (t.length < 6 || t.length > 160 || /fechar antes|close early/i.test(t)) continue;
-      if (!/\b\d{1,2}:\d{2}\b/.test(t) || !/(US\$|R\$|\$|€)\s*\d/.test(t)) continue;
+      if (!/\b\d{1,2}:\d{2}\b/.test(t) || !/(US\$|R\$|\$|€|Đ|₫)\s*\d/.test(t)) continue;
       const r = el.getBoundingClientRect();
       if (r.width > 420 || r.height > 180 || r.width < 60) continue;
       let pts = 0;
