@@ -10,7 +10,14 @@
   function aposentar() {
     if (morto) return; morto = true;
     const p = document.getElementById('rs-painel');
-    if (p) p.innerHTML = '<div style="padding:12px;font:13px system-ui;color:#e7ecf3;background:#151d29">Robô de Sinais foi atualizado. Aperte <b>F5</b> nesta aba para usar a versão nova.</div>';
+    if (p) p.innerHTML = '<div style="padding:12px;font:13px system-ui;color:#e7ecf3;background:#151d29">Robô de Sinais foi atualizado. Recarregando a página sozinho...</div>';
+    // dá F5 sozinho assim que não houver ordem deste robô em andamento (no máximo 10 min de espera)
+    const desde = Date.now();
+    const tentar = () => {
+      const andamento = (typeof sessao !== 'undefined') && sessao.ops.some((r) => r.situacao === 'em andamento');
+      if (!andamento || Date.now() - desde > 10 * 60000) location.reload(); else setTimeout(tentar, 5000);
+    };
+    setTimeout(tentar, 3000);
   }
   const repetir = (fn, ms) => { const id = setInterval(() => { if (!vivo()) { clearInterval(id); aposentar(); return; } try { const r = fn(); if (r && r.catch) r.catch(() => {}); } catch (e) { if (!vivo()) { clearInterval(id); aposentar(); } } }, ms); return id; };
   const RETORNO = 0.85; // retorno médio da Olymp no acerto, usado nas contas do teste

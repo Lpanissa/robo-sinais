@@ -71,3 +71,14 @@ chrome.runtime.onMessage.addListener((m, _s, responder) => {
   velas(m).then((v) => responder({ ok: true, velas: v })).catch((e) => responder({ ok: false, erro: e.message }));
   return true;
 });
+
+// atualização sozinha: quando os arquivos da extensão mudam na pasta, ela se recarrega
+// (as abas da Olymp percebem e dão F5 sozinhas quando não há ordem aberta)
+async function verificarVersao() {
+  try {
+    const r = await fetch(chrome.runtime.getURL('manifest.json') + '?t=' + Date.now(), { cache: 'no-store' });
+    const m = await r.json();
+    if (m.version && m.version !== chrome.runtime.getManifest().version) chrome.runtime.reload();
+  } catch (e) { /* tenta de novo depois */ }
+}
+setInterval(verificarVersao, 60000);
