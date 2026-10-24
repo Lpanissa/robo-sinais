@@ -20,6 +20,8 @@
     setTimeout(tentar, 3000);
   }
   const repetir = (fn, ms) => { const id = setInterval(() => { if (!vivo()) { clearInterval(id); aposentar(); return; } try { const r = fn(); if (r && r.catch) r.catch(() => {}); } catch (e) { if (!vivo()) { clearInterval(id); aposentar(); } } }, ms); return id; };
+  // estratégias tiradas por enquanto (deram mais perda na conta real em 24/10): não entram no automático
+  const TIRADAS = new Set(['esto_rsi', 'rsi_bb']);
   const RETORNO = 0.85; // retorno médio da Olymp no acerto, usado nas contas do teste
   const EMPATE = (100 / (1 + RETORNO));
   const PADRAO = {
@@ -156,7 +158,7 @@
         }
       }
     }
-    const aprovadas = linhas.filter((r) => r.a.n >= cfg.minOps * 0.6 && r.b.n >= cfg.minOps * 0.4 && r.a.ac >= cfg.minAcerto && r.b.ac >= cfg.minAcerto);
+    const aprovadas = linhas.filter((r) => !TIRADAS.has(r.est) && r.a.n >= cfg.minOps * 0.6 && r.b.n >= cfg.minOps * 0.4 && r.a.ac >= cfg.minAcerto && r.b.ac >= cfg.minAcerto);
     aprovadas.sort((x, y) => y.total.lucro - x.total.lucro);
     linhas.sort((x, y) => y.total.lucro - x.total.lucro);
     return { melhor: aprovadas[0] || null, aprovadas, todas: linhas };
