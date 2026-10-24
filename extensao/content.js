@@ -624,10 +624,35 @@
   repetir(() => vigiarFechamento(), 700);
 
   // resultado pela cotação (não pelo saldo, que mistura as operações das outras janelas)
+  // como a operação terminaria se fosse até o fim (pela cotação)
+  function resultadoNoFim(reg) {
+    const s = reg.sinal;
+    let res = s.res;
+    if (res !== 'acerto' && res !== 'erro') {
+      const m = Object.values(motores).find((x) => x.velas.length);
+      const ult = m ? m.velas[m.velas.length - 1].c : null;
+      res = ult == null || ult === s.entrada ? null : (s.dir === 'up' ? ult > s.entrada : ult < s.entrada) ? 'acerto' : 'erro';
+    }
+    return res === 'acerto' ? Math.round(reg.valor * reg.retorno * 100) / 100 : res === 'erro' ? -reg.valor : null;
+  }
+  // placar "fechar antes x deixar ir até o fim", somado entre as janelas
+  let fecharStats = { n: 0, fechando: 0, deixando: 0, viraram: 0 };
+  chrome.storage.local.get('fecharStats', (r) => { if (r.fecharStats) fecharStats = r.fecharStats; });
+  if (chrome.storage.onChanged) chrome.storage.onChanged.addListener((m) => { if (m.fecharStats) fecharStats = m.fecharStats.newValue || fecharStats; });
+  async function anotarComparacao(reg) {
+    const fim = resultadoNoFim(reg);
+    reg.seFosseAteOFim = fim;
+    const atual = await new Promise((ok) => chrome.storage.local.get('fecharStats', (r) => ok(r.fecharStats || { n: 0, fechando: 0, deixando: 0, viraram: 0 })));
+    atual.n++; atual.fechando += reg.fechouAntes; atual.deixando += fim || 0; if (fim != null && fim < 0) atual.viraram++;
+    fecharStats = atual;
+    await new Promise((ok) => chrome.storage.local.set({ fecharStats: atual }, ok));
+  }
+
   async function conferir(reg) {
     if (reg.fechouAntes != null) {
+      await anotarComparacao(reg);
       reg.resultado = reg.fechouAntes;
-      reg.situacao = 'fechou antes';
+      reg.situacao = reg.seFosseAteOFim == null ? 'fechou antes' : `fechou antes (no fim: ${reg.seFosseAteOFim > 0 ? '+' : ''}${reg.seFosseAteOFim.toFixed(2)})`;
       sessao.resultado += reg.resultado;
       await liberar(reg.id);
       const cg = await lerConta();
@@ -731,7 +756,7 @@
       salvar();
       desenhar(true);
     }
-    if (a === 'zerar') { sessao.ops.length = 0; sessao.resultado = 0; sessao.perdasSeguidas = 0; sessao.parado = ''; gravarConta({ abertas: {}, resultado: 0, perdasSeguidas: 0, ganhos: 0, perdas: 0, parado: '' }); desenhar(true); }
+    if (a === 'zerar') { fecharStats = { n: 0, fechando: 0, deixando: 0, viraram: 0 }; chrome.storage.local.set({ fecharStats }); sessao.ops.length = 0; sessao.resultado = 0; sessao.perdasSeguidas = 0; sessao.parado = ''; gravarConta({ abertas: {}, resultado: 0, perdasSeguidas: 0, ganhos: 0, perdas: 0, parado: '' }); desenhar(true); }
     if (a === 'geral') rodarRankingGeral();
     // só opera o que passou com folga nas duas partes do teste; troca de ativo sozinho para achar o melhor
     if (a === 'assertivo') { Object.assign(cfg, { minAcerto: 60, minOps: 60, sempreLeitura: 0, modo: 'todas', autoAtivo: 1 }); ultimaEscolha = 0; salvar(); desenhar(true); }
@@ -778,6 +803,7 @@ ${comb}
 <div class="rs-sinal"><div class="rs-ic" style="background:${sinal.bg};color:#0e141d;font-weight:800;font-size:20px">${sinal.ic}</div><div><div class="rs-t">${esc(sinal.t)}</div><div class="rs-mono" style="color:#8b97a8;font-size:12px">${esc(sinal.s)}</div></div></div>
 <button class="rs-b" data-a="ligar" style="background:${cfg.ligado ? '#f0675b' : '#2fc59c'};color:#0e141d">${cfg.ligado ? 'Desligar robô' : 'Ligar robô (operar)'}</button>
 ${sessao.parado || contaGlobal.parado ? `<div style="color:#f0675b;font-size:12px">Robô parou: ${esc(sessao.parado || contaGlobal.parado)}</div>` : ''}
+${fecharStats.n ? `<div class="rs-box">Fechar antes: <b>${fecharStats.n}</b> operações · fechando antes <b style="color:${fecharStats.fechando >= 0 ? '#2fc59c' : '#f0675b'}">${fecharStats.fechando >= 0 ? '+' : ''}${fecharStats.fechando.toFixed(2)}</b> · se deixasse até o fim <b style="color:${fecharStats.deixando >= 0 ? '#2fc59c' : '#f0675b'}">${fecharStats.deixando >= 0 ? '+' : ''}${fecharStats.deixando.toFixed(2)}</b><br>${fecharStats.viraram} delas teriam virado perda · ${fecharStats.fechando >= fecharStats.deixando ? 'fechar antes está compensando' : 'deixar até o fim estaria rendendo mais'}</div>` : ''}
 <div class="rs-row rs-mono" style="font-size:12px"><div>Esta janela: <b style="color:${sessao.resultado >= 0 ? '#2fc59c' : '#f0675b'}">${sessao.resultado >= 0 ? '+' : ''}${sessao.resultado.toFixed(2)}</b></div><div>${ganhos} ganhos · ${perdas} perdas</div></div>
 <div class="rs-row rs-mono" style="font-size:12px"><div>Conta toda: <b style="color:${(contaGlobal.resultado || 0) >= 0 ? '#2fc59c' : '#f0675b'}">${(contaGlobal.resultado || 0) >= 0 ? '+' : ''}${(contaGlobal.resultado || 0).toFixed(2)}</b></div><div>${contaGlobal.ganhos || 0} g · ${contaGlobal.perdas || 0} p · ${Object.keys(limparVencidas({ abertas: { ...(contaGlobal.abertas || {}) } }).abertas).length} abertas</div></div>
 <div class="rs-ops">${sessao.ops.slice(0, 8).map((o) => `<div class="rs-op"><span class="rs-mono">${hora(o.hora)} ${o.dir === 'up' ? '▲ Compra' : o.dir === 'down' ? '▼ Venda' : 'Manual'}</span><span>${esc(o.situacao)}</span><span class="rs-mono" style="color:${o.resultado > 0 ? '#2fc59c' : o.resultado < 0 ? '#f0675b' : '#8b97a8'}">${o.resultado != null ? (o.resultado > 0 ? '+' : '') + o.resultado.toFixed(2) : ''}</span></div>`).join('') || '<span style="color:#8b97a8">Nenhuma operação ainda</span>'}</div>
