@@ -7,6 +7,7 @@ import { ESTRATEGIAS } from './src/estrategias';
 import { criarMotor, carregarHistorico, atualizar, placar } from './src/motor';
 import Grafico from './src/Grafico';
 import HistoricoPC from './src/HistoricoPC';
+import Atualizacao from './src/Atualizacao';
 import { C } from './src/tema';
 
 const PADRAO = { ativo: 'BTCUSDT', expira: 3, rigor: 2.5, painel: 'conf', banca: 500, valor: 10, retorno: 85, chave: '' };
@@ -201,6 +202,7 @@ export default function App() {
               )}
             </View>
           </View>
+          <Atualizacao />
           <View style={s.chips}>
             <Chip texto="Robô no PC" ativo={tela === 'pc'} onPress={() => setTela('pc')} />
             <Chip texto="Sinais ao vivo" ativo={tela === 'sinais'} onPress={() => setTela('sinais')} />

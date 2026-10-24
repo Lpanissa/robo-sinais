@@ -1,0 +1,1 @@
+Agora o app se atualiza sozinho: quando sai versão nova, ele baixa e abre a instalação. Depois de atualizar, mostra aqui o que mudou.
