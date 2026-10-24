@@ -38,7 +38,10 @@
         continue;
       }
       // negociações: 23 = resposta da abertura, 22 = aviso de abertura, 26 = fechou (status win/loss/standoff)
+      if (ev.e === 23 && !Array.isArray(ev.d)) postar({ __rsDeal: true, tipo: 'recusou', motivo: JSON.stringify(ev).slice(0, 300) });
       if ((ev.e === 23 || ev.e === 22 || ev.e === 26) && Array.isArray(ev.d)) {
+        // resposta de abertura sem negociação = a Olymp recusou; repassa o motivo
+        if (ev.e === 23 && !ev.d.some((x) => x && x.id)) postar({ __rsDeal: true, tipo: 'recusou', motivo: JSON.stringify(ev).slice(0, 300) });
         for (const x of ev.d) {
           if (!x || !x.id || !x.pair) continue;
           postar({ __rsDeal: true, tipo: ev.e === 26 ? 'fechou' : 'abriu', id: x.id, pair: x.pair, dir: x.dir, amount: x.amount, status: x.status, bc: x.balance_change, grupo: x.group });

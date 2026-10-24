@@ -510,11 +510,14 @@
 
   // ---------- negociações confirmadas pela própria Olymp (olymp-escuta.js) ----------
   const dealsVistos = {}; // id -> { pair, dir, em }
+  let ultimaRecusa = null;
+  const recusas = []; // últimas recusas da Olymp (vão no estado para o app)
   let ultimoPedido = null; // último pedido de abertura que a página mandou (com a duração real)
   window.addEventListener('message', (ev) => {
     const d = ev.data;
     if (ev.source !== window || !d || !d.__rsDeal) return;
     if (d.tipo === 'pedido') { ultimoPedido = { ...d, em: Date.now() }; return; }
+    if (d.tipo === 'recusou') { ultimaRecusa = { motivo: d.motivo, em: Date.now() }; recusas.unshift(new Date().toLocaleTimeString() + ' ' + d.motivo); recusas.length = Math.min(recusas.length, 5); return; }
     if (d.tipo === 'abriu') { if (!dealsVistos[d.id]) dealsVistos[d.id] = { pair: d.pair, dir: d.dir, em: Date.now(), usado: false }; return; }
     if (d.tipo === 'fechou') {
       const reg = sessao.ops.find((r) => r.dealId === d.id);
@@ -565,7 +568,7 @@
       const dealId = await esperarDeal(ativo.simbolo, sinal.dir, clicouEm);
       if (!dealId) {
         liberar(id);
-        reg.situacao = 'sem resultado (a Olymp não abriu a ordem)';
+        reg.situacao = 'sem resultado (a Olymp não abriu a ordem' + (ultimaRecusa && Date.now() - ultimaRecusa.em < 15000 ? ': ' + ultimaRecusa.motivo.slice(0, 120) : '') + ')';
         enviarOrdem(reg);
         operando = false;
         desenhar();
@@ -897,6 +900,7 @@
       abertas: sessao.ops.filter((x) => x.situacao === 'em andamento').length, fechar: fecharInfo || '',
       saldo: (q('[data-test="account-balance-value"]')?.innerText || '').trim(),
       escuta: Object.values(escuta),
+      recusas,
     } });
   }
   setTimeout(() => { sincronizarApp(); enviarEstado(); }, 5000);
