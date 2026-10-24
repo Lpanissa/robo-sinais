@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Robô de Sinais - Piloto Demo",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Opera os sinais do Robô de Sinais na conta DEMO da Olymp Trade. Não opera na conta real.",
   "permissions": ["storage"],
   "host_permissions": ["https://api.binance.com/*", "https://data-api.binance.vision/*", "https://api.twelvedata.com/*"],

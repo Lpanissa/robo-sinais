@@ -149,6 +149,7 @@
   let statusTxt = 'Carregando...';
   let statusTipo = 'aviso';
   let operando = false;
+  let travadas = 0; // botões desligados seguidos: a página da Olymp travou
   let livreAte = 0; // não abre outra operação antes da anterior terminar
   const sessao = { ops: [], perdasSeguidas: 0, resultado: 0, parado: '' };
 
@@ -295,8 +296,15 @@
       await ajustarValor(valor);
       await ajustarDuracao(c.exp);
       const antes = saldo();
-      const botao = q(`[data-test="deal-submit-button-${sinal.dir === 'up' ? 'up' : 'down'}"]`);
-      if (!botao || botao.disabled) throw new Error('o botão de operar não está disponível');
+      // a Olymp às vezes desliga os botões por alguns segundos (gráfico carregando): espera até 15 s
+      let botao = null;
+      for (let i = 0; i < 30; i++) {
+        botao = q(`[data-test="deal-submit-button-${sinal.dir === 'up' ? 'up' : 'down'}"]`);
+        if (botao && !botao.disabled) break;
+        await espera(500);
+      }
+      if (!botao || botao.disabled) { travadas++; throw new Error('o botão de operar não está disponível'); }
+      travadas = 0;
       botao.click();
       reg.situacao = 'em andamento';
       livreAte = Date.now() + c.exp * MINUTO + 5000;
@@ -304,6 +312,7 @@
       setTimeout(() => conferir(reg), c.exp * MINUTO + 8000);
     } catch (e) {
       reg.situacao = 'falhou: ' + e.message;
+      if (travadas >= 3) { reg.situacao += ' · recarregando a página'; setTimeout(() => location.reload(), 3000); }
     }
     operando = false;
     desenhar();
