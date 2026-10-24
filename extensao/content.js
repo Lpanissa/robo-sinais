@@ -19,7 +19,7 @@
     ligado: false, autoAtivo: false, sempreLeitura: 1, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
     maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0,
-    fecharAlvo: 0, fecharModo: 'percent', fecharManuais: 0, // fechar antes no lucro (0 = nunca); sem stop de perda
+    fecharAlvo: 0, fecharModo: 'auto', fecharManuais: 0, // fechar antes no lucro (0 = nunca); sem stop de perda
   };
 
   // ---------- ativos ----------
@@ -591,8 +591,42 @@
     }
     return valorDaEntrada() * retornoAtivo();
   }
+  // fechar antes automático: com o histórico das ordens do robô, vê o que teria dado mais lucro
+  // (fechar ao chegar em 30/50/70/90% do lucro cheio, ou deixar ir até o fim) e usa o melhor
+  let amostras = [];
+  chrome.storage.local.get('amostrasFechar', (r) => { amostras = r.amostrasFechar || []; });
+  if (chrome.storage.onChanged) chrome.storage.onChanged.addListener((m) => { if (m.amostrasFechar) amostras = m.amostrasFechar.newValue || []; });
+  const MIN_AMOSTRAS = 20;
+  function decisaoAuto() {
+    const a = amostras.slice(-100);
+    if (a.length < MIN_AMOSTRAS) return { frac: null, info: `automático: aprendendo (${a.length} de ${MIN_AMOSTRAS} operações) · por enquanto deixa ir até o fim` };
+    const nunca = a.reduce((t, x) => t + x.f, 0);
+    let melhor = { frac: null, pnl: nunca };
+    for (const T of [0.3, 0.5, 0.7, 0.9]) {
+      const pnl = a.reduce((t, x) => t + (x.m >= T ? T * x.r : x.f), 0);
+      if (pnl > melhor.pnl + 1e-9) melhor = { frac: T, pnl };
+    }
+    const por = (n) => (n >= 0 ? '+' : '') + n.toFixed(2);
+    return melhor.frac == null
+      ? { frac: null, info: `automático: deixar ir até o fim está rendendo mais (${por(nunca)} por US$1 nas últimas ${a.length})` }
+      : { frac: melhor.frac, info: `automático: fecha em ${Math.round(melhor.frac * 100)}% do lucro (${por(melhor.pnl)} contra ${por(nunca)} deixando ir até o fim, nas últimas ${a.length})` };
+  }
+  async function guardarAmostra(x) {
+    const atual = await new Promise((ok) => chrome.storage.local.get('amostrasFechar', (r) => ok(r.amostrasFechar || [])));
+    atual.push(x); if (atual.length > 300) atual.splice(0, atual.length - 300);
+    amostras = atual;
+    await new Promise((ok) => chrome.storage.local.set({ amostrasFechar: atual }, ok));
+  }
+  // pico do valor do "Fechar antes" de cada ordem (pelo Trade ID do cartão)
+  const picos = new Map();
+  function idDaOrdem(b) {
+    let el = b;
+    for (let i = 0; i < 8 && el; i++, el = el.parentElement) { const m = (el.innerText || '').match(/trade id\s*(\d{5,})/i); if (m) return m[1]; }
+    return 'sem-id';
+  }
   async function vigiarFechamento() {
-    if (fechando || !(cfg.fecharAlvo > 0) || (!cfg.ligado && !cfg.fecharManuais)) return;
+    const auto = cfg.fecharModo === 'auto';
+    if (fechando || (!auto && !(cfg.fecharAlvo > 0)) || (!cfg.ligado && !cfg.fecharManuais)) return;
     const minhas = cfg.ligado ? sessao.ops.filter((r) => r.situacao === 'em andamento' && r.fechouAntes == null) : [];
     if (!minhas.length && !cfg.fecharManuais) { fecharInfo = 'esperando uma ordem abrir'; return; }
     let botoes = acharBotoesFechar();
@@ -614,12 +648,27 @@
       fecharInfo = minhas.length ? 'não achei o botão "Fechar antes" (deixe a lista de Negociações aberta)' : 'para as ordens manuais, deixe a lista de Negociações aberta';
       return;
     }
-    fecharInfo = 'vigiando a ordem aberta';
+    const dec = auto ? decisaoAuto() : null;
+    fecharInfo = auto ? dec.info : 'vigiando a ordem aberta';
     for (const b of botoes) {
       let v = lerValor(b.innerText || '');
       if (v == null && b.parentElement) v = lerValor((b.parentElement.innerText || '').split(/fechar antes|close early/i).pop());
-      if (v == null || v <= 0) continue;
-      const alvo = cfg.fecharModo === 'valor' ? cfg.fecharAlvo : lucroCheio(b) * cfg.fecharAlvo / 100;
+      if (v == null) continue;
+      const cheio = lucroCheio(b);
+      // aprende: maior valor que o "Fechar antes" chegou nesta ordem (só dá para saber qual é com uma ordem do robô aberta)
+      if (minhas.length === 1 && cheio > 0) minhas[0].maxFrac = Math.max(minhas[0].maxFrac || -9, v / cheio);
+      // proteger o lucro: a ordem chegou num lucro bom e está voltando (caiu para a metade do pico) -> fecha antes que vire
+      let proteger = false;
+      if (auto) {
+        const id = idDaOrdem(b);
+        const pk = Math.max(picos.get(id) || 0, v);
+        picos.set(id, pk); if (picos.size > 60) picos.clear();
+        proteger = v > 0 && cheio > 0 && pk >= 0.25 * cheio && v <= 0.5 * pk;
+      }
+      if (v <= 0) continue;
+      let alvo;
+      if (auto) alvo = proteger ? v : dec.frac == null ? Infinity : cheio * dec.frac;
+      else alvo = cfg.fecharModo === 'valor' ? cfg.fecharAlvo : cheio * cfg.fecharAlvo / 100;
       if (v + 1e-9 < alvo) continue;
       fechando = true;
       try {
@@ -631,9 +680,9 @@
         if (conf) { conf.click(); await espera(500); }
         await espera(2500); // dá tempo do cartão sumir, para não contar duas vezes
         const reg = minhas.pop();
-        if (reg) { liberar(reg.id); reg.fechouAntes = Math.round(v * 100) / 100; reg.situacao = `fechou antes (+${v.toFixed(2)})`; }
+        if (reg) { liberar(reg.id); if (cheio > 0) reg.maxFrac = Math.max(reg.maxFrac || -9, v / cheio); reg.fechouAntes = Math.round(v * 100) / 100; reg.situacao = `fechou antes (+${v.toFixed(2)})`; }
         else registrar({ hora: Date.now(), dir: '', estrategia: 'ordem manual', situacao: 'fechou antes (manual)', resultado: Math.round(v * 100) / 100 });
-        status(`Fechou antes no lucro: +${v.toFixed(2)}`, 'ok');
+        status(proteger ? `Protegeu o lucro (a ordem estava voltando): +${v.toFixed(2)}` : `Fechou antes no lucro: +${v.toFixed(2)}`, 'ok');
       } finally { fechando = false; }
     }
   }
@@ -667,6 +716,7 @@
   async function conferir(reg) {
     if (reg.fechouAntes != null) {
       await anotarComparacao(reg);
+      if (reg.maxFrac != null && reg.seFosseAteOFim != null && reg.valor > 0) guardarAmostra({ m: reg.maxFrac, f: reg.seFosseAteOFim / reg.valor, r: reg.retorno });
       reg.resultado = reg.fechouAntes;
       reg.situacao = reg.seFosseAteOFim == null ? 'fechou antes' : `fechou antes (no fim: ${reg.seFosseAteOFim > 0 ? '+' : ''}${reg.seFosseAteOFim.toFixed(2)})`;
       sessao.resultado += reg.resultado;
@@ -688,6 +738,7 @@
     }
     reg.resultado = res === 'acerto' ? Math.round(reg.valor * reg.retorno * 100) / 100 : res === 'erro' ? -reg.valor : null;
     reg.situacao = reg.resultado == null ? 'empate' : reg.resultado > 0 ? 'ganhou' : 'perdeu';
+    if (reg.maxFrac != null && reg.resultado != null && reg.valor > 0) guardarAmostra({ m: reg.maxFrac, f: reg.resultado / reg.valor, r: reg.retorno });
     sessao.resultado += reg.resultado || 0;
     await liberar(reg.id);
     if (reg.resultado != null) {
@@ -827,7 +878,7 @@
 
     const topo = `
 <div class="rs-st"><span class="rs-dot" style="background:${cor}"></span><span>${esc(statusTxt)}</span></div>
-${cfg.fecharAlvo > 0 && fecharInfo ? `<div class="rs-st" style="color:#8b97a8">Fechar antes: ${esc(fecharInfo)}</div>` : ""}
+${(cfg.fecharAlvo > 0 || cfg.fecharModo === 'auto') && fecharInfo ? `<div class="rs-st" style="color:#8b97a8">Fechar antes: ${esc(fecharInfo)}</div>` : ""}
 ${real ? `<div class="rs-real">CONTA REAL: as operações usam dinheiro de verdade</div>` : `<div class="rs-l">Conta: ${esc(ct || '?')}</div>`}
 ${comb}
 <div class="rs-sinal"><div class="rs-ic" style="background:${sinal.bg};color:#0e141d;font-weight:800;font-size:20px">${sinal.ic}</div><div><div class="rs-t">${esc(sinal.t)}</div><div class="rs-mono" style="color:#8b97a8;font-size:12px">${esc(sinal.s)}</div></div></div>
@@ -855,7 +906,7 @@ ${cfg.modo === 'manual' ? `<div class="rs-row">
 ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="percent" value="${cfg.percent}" inputmode="decimal"></label>` : `<label>Valor por operação<input data-k="valor" value="${cfg.valor}" inputmode="decimal"></label>`}
 <label>Parar após perdas seguidas (0 = nunca)<input data-k="maxPerdasSeguidas" value="${cfg.maxPerdasSeguidas}" inputmode="numeric"></label>
 <label>Parar se perder na sessão (0 = nunca)<input data-k="limitePerda" value="${cfg.limitePerda}" inputmode="decimal"></label>
-<div class="rs-row"><label>Fechar antes no lucro<select data-k="fecharModo"><option value="percent"${cfg.fecharModo !== 'valor' ? ' selected' : ''}>% do lucro cheio</option><option value="valor"${cfg.fecharModo === 'valor' ? ' selected' : ''}>Valor (US$)</option></select></label><label>Alvo (0 = nunca)<input data-k="fecharAlvo" value="${cfg.fecharAlvo}" inputmode="decimal"></label></div>
+<div class="rs-row"><label>Fechar antes no lucro<select data-k="fecharModo"><option value="auto"${cfg.fecharModo === 'auto' ? ' selected' : ''}>Automático (o robô decide)</option><option value="percent"${cfg.fecharModo === 'percent' ? ' selected' : ''}>% do lucro cheio</option><option value="valor"${cfg.fecharModo === 'valor' ? ' selected' : ''}>Valor (US$)</option></select></label>${cfg.fecharModo === 'auto' ? '' : `<label>Alvo (0 = nunca)<input data-k="fecharAlvo" value="${cfg.fecharAlvo}" inputmode="decimal"></label>`}</div>
 <label>Fechar antes também nas minhas ordens manuais<select data-k="fecharManuais"><option value="0"${!cfg.fecharManuais ? ' selected' : ''}>Não, só nas do robô</option><option value="1"${cfg.fecharManuais ? ' selected' : ''}>Sim, nas minhas também</option></select></label>
 <label>Máx. operações abertas na conta (0 = sem limite)<input data-k="maxAbertas" value="${cfg.maxAbertas}" inputmode="numeric"></label>
 <label>Acerto mínimo no teste (%)<input data-k="minAcerto" value="${cfg.minAcerto}" inputmode="numeric"></label>
@@ -878,6 +929,8 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
   chrome.storage.local.get(['cfg', 'conta'], (r) => {
     cfg = { ...PADRAO, ...(r.cfg || {}) };
     if (!cfg.ligado && !(r.conta && r.conta.parado)) { cfg.ligado = true; salvar(); }
+    // modo independente (uma vez): escolhe o ativo, usa as melhores combinações e decide o fechar antes sozinho
+    if (!cfg.independente) { Object.assign(cfg, { independente: 1, autoAtivo: 1, modo: 'todas', fecharModo: 'auto' }); salvar(); }
     montarPainel();
   });
 
