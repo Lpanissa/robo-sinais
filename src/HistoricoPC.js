@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { C } from './tema';
+import OrdemAoVivo from './OrdemAoVivo';
 
 const SB_URL = 'https://fyxksvydxwvygjebanno.supabase.co/rest/v1/sinais_ordens';
 const SB_CHAVE = 'sb_publishable_HA-Ez2aumnGCLZt2rf-bsQ_MqipvpWK';
@@ -32,6 +33,7 @@ export default function HistoricoPC() {
   const [conta, setConta] = useState('real');
   const [dia, setDia] = useState(0);
   const [atualizado, setAtualizado] = useState(null);
+  const [aberta, setAberta] = useState(null); // ordem aberta no gráfico ao vivo
 
   const carregar = useCallback(async () => {
     try {
@@ -98,17 +100,18 @@ export default function HistoricoPC() {
           const cor = o.resultado > 0 ? C.alta : o.resultado < 0 ? C.baixa : C.suave;
           const dir = o.dir === 'up' ? 'Compra' : o.dir === 'down' ? 'Venda' : 'Manual';
           return (
-            <View key={o.id} style={[s.linha, i > 0 && s.borda]}>
+            <Pressable key={o.id} onPress={() => setAberta(o)} style={[s.linha, i > 0 && s.borda]}>
               <Text style={s.hora}>{horaDe(o.hora)}</Text>
               <View style={{ flex: 1 }}>
                 <Text style={s.ativo}>{o.ativo || '—'} <Text style={{ color: o.dir === 'up' ? C.alta : o.dir === 'down' ? C.baixa : C.suave }}>{dir}</Text></Text>
                 <Text style={s.det} numberOfLines={1}>{o.estrategia}{o.fechou_antes ? ' · fechou antes' : ''}</Text>
               </View>
-              <Text style={[s.res, { color: cor }]}>{o.resultado == null ? (/andamento/.test(o.situacao || '') ? 'aberta' : o.situacao) : din(Number(o.resultado), o.conta)}</Text>
-            </View>
+              <Text style={[s.res, { color: cor }]}>{o.resultado == null ? (/andamento/.test(o.situacao || '') ? 'aberta ›' : o.situacao) : din(Number(o.resultado), o.conta)}</Text>
+            </Pressable>
           );
         })}
       </View>
+      {aberta && <OrdemAoVivo ordem={aberta} fechar={() => setAberta(null)} />}
       {atualizado && <Text style={s.nota}>Atualiza sozinho a cada 20 segundos · última às {dois(atualizado.getHours())}:{dois(atualizado.getMinutes())}:{dois(atualizado.getSeconds())}</Text>}
     </View>
   );

@@ -115,7 +115,8 @@ export default function App() {
   const ativo = ATIVOS.find((a) => a.id === cfg.ativo) || ATIVOS[0];
 
   useEffect(() => {
-    if (!pronto) return;
+    // a tela de sinais ao vivo saiu do app: não conecta mais nas cotações
+    if (!pronto || tela !== 'sinais') return;
     motor.current = criarMotor();
     redesenhar();
     const fim = conectar(ativo, cfg.chave, {
@@ -219,10 +220,6 @@ export default function App() {
             </View>
           </View>
           <Atualizacao />
-          <View style={s.chips}>
-            <Chip texto="Robô no PC" ativo={tela === 'pc'} onPress={() => setTela('pc')} />
-            <Chip texto="Sinais ao vivo" ativo={tela === 'sinais'} onPress={() => setTela('sinais')} />
-          </View>
           {tela === 'pc' ? <View style={{ gap: 12 }}><ControleRobo /><HistoricoPC /></View> : (<>
           <View style={s.linhaCentro}>
             <View style={[s.ponto, { backgroundColor: corStatus }]} />
