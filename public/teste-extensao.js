@@ -277,7 +277,7 @@ function placar(S, cfg, zero) {
   const RETORNO = 0.85; // retorno médio da Olymp no acerto, usado nas contas do teste
   const EMPATE = (100 / (1 + RETORNO));
   const PADRAO = {
-    ligado: false, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
+    ligado: false, autoAtivo: false, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
     maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0,
   };
@@ -287,7 +287,7 @@ function placar(S, cfg, zero) {
   const RANKING_ATIVOS = [
     { titulo: 'EUR/USD', fonte: 'forex', simbolo: 'EUR/USD' }, { titulo: 'GBP/USD', fonte: 'forex', simbolo: 'GBP/USD' },
     { titulo: 'USD/JPY', fonte: 'forex', simbolo: 'USD/JPY' }, { titulo: 'AUD/USD', fonte: 'forex', simbolo: 'AUD/USD' },
-    { titulo: 'EUR/JPY', fonte: 'forex', simbolo: 'EUR/JPY' }, { titulo: 'Ouro', fonte: 'forex', simbolo: 'XAU/USD' },
+    { titulo: 'EUR/JPY', fonte: 'forex', simbolo: 'EUR/JPY' }, { titulo: 'Ouro', fonte: 'forex', simbolo: 'XAU/USD', busca: 'Gold' },
     { titulo: 'Bitcoin', fonte: 'cripto', simbolo: 'BTCUSDT' }, { titulo: 'Ethereum', fonte: 'cripto', simbolo: 'ETHUSDT' },
   ];
   function detectarAtivo() {
@@ -593,14 +593,91 @@ function placar(S, cfg, zero) {
       try {
         status('Ranking geral: testando ' + alvo.titulo + '...', 'aviso');
         desenhar();
-        const r = rankear({ 1: await pedirVelas(alvo, 1, 5000), 5: await pedirVelas(alvo, 5, 5000) });
-        rankingGeral.push({ titulo: alvo.titulo, melhor: r.melhor });
-      } catch (e) { rankingGeral.push({ titulo: alvo.titulo, erro: e.message }); }
+        const v1 = await pedirVelas(alvo, 1, 5000);
+        // mercado fechado (forex no fim de semana): a última vela é antiga
+        if (!v1.length || Date.now() - v1[v1.length - 1].t > 15 * MINUTO) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: 'mercado fechado' }); continue; }
+        const r = rankear({ 1: v1, 5: await pedirVelas(alvo, 5, 5000) });
+        rankingGeral.push({ titulo: alvo.titulo, alvo, melhor: r.melhor });
+      } catch (e) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: e.message }); }
+    }
+    // OTC e outros ativos que já juntaram velas suficientes pela tela
+    const tudo = await new Promise((ok) => chrome.storage.local.get(null, ok));
+    for (const k of Object.keys(tudo || {})) {
+      if (!k.startsWith('hist:')) continue;
+      const nome = k.slice(5);
+      const v1 = tudo[k];
+      if (!Array.isArray(v1) || v1.length < MIN_VELAS) continue;
+      const alvo = { titulo: nome, fonte: 'pagina', simbolo: nome, busca: nome };
+      colecao[nome] = colecao[nome] || v1;
+      const r = rankear({ 1: v1, 5: agregar(v1, 5) });
+      rankingGeral.push({ titulo: nome, alvo, melhor: r.melhor });
     }
     rankingGeral.sort((x, y) => (y.melhor ? y.melhor.total.lucro : -1e9) - (x.melhor ? x.melhor.total.lucro : -1e9));
     rodandoGeral = false;
     status('Ranking geral pronto', 'ok');
     desenhar(true);
+  }
+
+  // ---------- escolher o ativo sozinho ----------
+  // testa todos os ativos, pega o melhor que nenhuma outra janela esteja usando e troca o ativo na Olymp
+  let ultimaEscolha = 0;
+  let trocando = false;
+  const abertasNestaJanela = () => Object.values(contaGlobal.abertas || {}).filter((a) => a.aba === ABA && a.ate > Date.now()).length;
+  async function marcarAtivo(nome) {
+    const r = await new Promise((ok) => chrome.storage.local.get('ativosJanelas', ok));
+    const m = (r && r.ativosJanelas) || {};
+    for (const k of Object.keys(m)) if (m[k].ate < Date.now() || m[k].aba === ABA) delete m[k];
+    m[nome] = { aba: ABA, ate: Date.now() + 2 * 60 * MINUTO };
+    await new Promise((ok) => chrome.storage.local.set({ ativosJanelas: m }, ok));
+  }
+  async function ativosDeOutrasJanelas() {
+    const r = await new Promise((ok) => chrome.storage.local.get('ativosJanelas', ok));
+    const m = (r && r.ativosJanelas) || {};
+    return Object.keys(m).filter((k) => m[k].aba !== ABA && m[k].ate > Date.now());
+  }
+  async function trocarAtivoNaOlymp(nome) {
+    const add = q('[data-test="assets-tabs-add-button"]');
+    if (!add) throw new Error('não achei o botão de ativos');
+    painel.style.visibility = 'hidden';
+    try {
+      add.click();
+      await espera(1500);
+      const inp = [...document.querySelectorAll('input')].find((i) => /buscar|search/i.test(i.placeholder || ''));
+      if (!inp) throw new Error('não achei a busca de ativos');
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      set.call(inp, nome);
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      await espera(1500);
+      const item = [...document.querySelectorAll('*')].find((e) => e.children.length === 0 && (e.textContent || '').trim() === nome && e.offsetParent);
+      if (!item) { add.click(); throw new Error('a Olymp não tem ' + nome + ' agora'); }
+      item.click();
+      await espera(2500);
+    } finally { painel.style.visibility = 'visible'; }
+  }
+  async function escolherAtivo() {
+    if (trocando || !cfg.autoAtivo || abertasNestaJanela() > 0) return;
+    trocando = true;
+    try {
+      ultimaEscolha = Date.now();
+      await rodarRankingGeral();
+      const ocupados = await ativosDeOutrasJanelas();
+      const nota = (r) => (r.melhor ? r.melhor.b.ac + r.melhor.a.ac : -1);
+      const candidatos = (rankingGeral || []).filter((r) => r.melhor && !ocupados.includes(r.titulo)).sort((x, y) => nota(y) - nota(x));
+      if (!candidatos.length) { status('Escolha automática: nenhum ativo livre com combinação aprovada agora', 'aviso'); return; }
+      const atual = detectarAtivo();
+      for (const c of candidatos) {
+        const nomeOlymp = c.alvo.busca || c.titulo;
+        if (atual.titulo === nomeOlymp || atual.titulo === c.titulo) { await marcarAtivo(atual.titulo); status('Escolha automática: ' + atual.titulo + ' continua sendo o melhor', 'ok'); return; }
+        try {
+          status('Escolha automática: trocando para ' + nomeOlymp + '...', 'aviso');
+          await trocarAtivoNaOlymp(nomeOlymp);
+          await marcarAtivo(nomeOlymp);
+          chaveAtivo = '';
+          return;
+        } catch (e) { /* tenta o próximo da lista */ }
+      }
+      status('Escolha automática: não consegui abrir nenhum dos melhores ativos', 'erro');
+    } finally { trocando = false; }
   }
 
   // ---------- operar ----------
@@ -834,6 +911,7 @@ ${geral}`;
 
     const form = `
 <div class="rs-l" style="margin-top:4px">Ajustes</div>
+<label>Ativo<select data-k="autoAtivo"><option value="0"${!cfg.autoAtivo ? ' selected' : ''}>O que estiver aberto na tela</option><option value="1"${cfg.autoAtivo ? ' selected' : ''}>O robô escolhe o melhor sozinho</option></select></label>
 <label>Como escolher<select data-k="modo"><option value="todas"${cfg.modo === 'todas' ? ' selected' : ''}>Todas as combinações aprovadas (automático)</option><option value="melhor"${cfg.modo === 'melhor' ? ' selected' : ''}>Só a melhor combinação (automático)</option><option value="manual"${cfg.modo === 'manual' ? ' selected' : ''}>Eu escolho</option></select></label>
 ${cfg.modo === 'manual' ? `<div class="rs-row">
 <label>Estratégia<select data-k="estrategia">${ESTRATEGIAS.map((e) => `<option value="${e.id}"${cfg.estrategia === e.id ? ' selected' : ''}>${e.nome}</option>`).join('')}</select></label>
@@ -865,7 +943,15 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
 
   let rodando = false;
   setInterval(async () => {
-    if (!rodando) { rodando = true; try { await ciclo(); } finally { rodando = false; } }
+    if (!rodando) {
+      rodando = true;
+      try {
+        // escolha automática: ao ligar, a cada hora, ou quando o ativo atual não tem combinação aprovada
+        const semComb = ativo && !ativo.juntando && rankingAtivo && !combinacoes().length;
+        if (cfg.autoAtivo && cfg.ligado && !trocando && (Date.now() - ultimaEscolha > 60 * MINUTO || (semComb && Date.now() - ultimaEscolha > 10 * MINUTO))) await escolherAtivo();
+        await ciclo();
+      } finally { rodando = false; }
+    }
     desenhar();
   }, 1000);
 })();
