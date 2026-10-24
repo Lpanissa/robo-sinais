@@ -26,12 +26,15 @@
     const id = botao ? botao.getAttribute('data-test').replace('asset-select-button-', '').replace('/ftt', '') : '';
     const t = titulo.toUpperCase();
     const base = { titulo: titulo || id || '?', id };
-    if (/OTC/.test(t) || /OTC/.test(id)) return { ...base, erro: 'Ativo OTC: o preço é da própria corretora, o robô não consegue ler' };
+    // OTC: o preço é da própria Olymp; o robô monta as velas lendo o preço da tela
+    if (/OTC/.test(t) || /OTC/.test(id)) return { ...base, fonte: 'pagina', simbolo: base.titulo };
     for (const par of FOREX) if (t === par || id === par.replace('/', '')) return { ...base, fonte: 'forex', simbolo: par };
     if (/BITCOIN|BTC/.test(t) || /^BTC/.test(id)) return { ...base, fonte: 'cripto', simbolo: 'BTCUSDT' };
     if (/ETHEREUM|ETH/.test(t) || /^ETH/.test(id)) return { ...base, fonte: 'cripto', simbolo: 'ETHUSDT' };
     if (/GOLD|OURO|XAU/.test(t) || /^XAU/.test(id)) return { ...base, fonte: 'forex', simbolo: 'XAU/USD' };
-    return { ...base, erro: 'Ativo sem cotação para o robô. Use EUR/USD, GBP/USD, USD/JPY, AUD/USD, EUR/JPY, Ouro, Bitcoin ou Ethereum.' };
+    if (!titulo) return { ...base, erro: 'Carregando o ativo da Olymp...' };
+    // qualquer outro ativo: velas montadas com o preço da tela
+    return { ...base, fonte: 'pagina', simbolo: base.titulo };
   }
 
   // ---------- página da corretora ----------
@@ -156,7 +159,55 @@
   const salvar = () => chrome.storage.local.set({ cfg });
   function status(t, tipo) { statusTxt = t; statusTipo = tipo; }
 
-  function pedirVelas(alvo, tf, n) {
+  // ---------- velas montadas com o preço da tela (OTC e ativos sem cotação externa) ----------
+  // o título da aba da Olymp traz o preço ao vivo ("▲ 2366.0750 Ethereum | ..."); a cada segundo vira vela de 1 min
+  const MIN_VELAS = 300;
+  const colecao = {}; // ativo -> velas de 1 min (guardadas no chrome.storage para juntar histórico entre recargas)
+  const chaveHist = (nome) => 'hist:' + nome;
+  function precoDaTela() {
+    const m = (document.title || '').match(/([\d]+[.,]?[\d]*)/);
+    if (!m) return null;
+    const n = parseFloat(m[1].replace(',', '.'));
+    return isFinite(n) && n > 0 ? n : null;
+  }
+  async function carregarColecao(nome) {
+    if (colecao[nome]) return colecao[nome];
+    const r = await new Promise((ok) => chrome.storage.local.get(chaveHist(nome), ok));
+    colecao[nome] = (r && r[chaveHist(nome)]) || [];
+    return colecao[nome];
+  }
+  let salvoEm = 0;
+  function coletar() {
+    const a = detectarAtivo();
+    if (!a || a.fonte !== 'pagina' || !colecao[a.titulo]) return;
+    const p = precoDaTela();
+    if (p == null) return;
+    const v = colecao[a.titulo];
+    const t = Math.floor(Date.now() / MINUTO) * MINUTO;
+    const u = v[v.length - 1];
+    if (u && u.t === t) { u.h = Math.max(u.h, p); u.l = Math.min(u.l, p); u.c = p; }
+    else v.push({ t, o: u && t - u.t === MINUTO ? u.c : p, h: p, l: p, c: p });
+    if (v.length > 8000) v.splice(0, v.length - 8000);
+    if (Date.now() - salvoEm > 30000) { salvoEm = Date.now(); chrome.storage.local.set({ [chaveHist(a.titulo)]: v }); }
+  }
+  setInterval(coletar, 1000);
+  function agregar(v1, tf) {
+    if (tf === 1) return v1.slice();
+    const out = [];
+    for (const k of v1) {
+      const t = Math.floor(k.t / (tf * MINUTO)) * tf * MINUTO;
+      const u = out[out.length - 1];
+      if (u && u.t === t) { u.h = Math.max(u.h, k.h); u.l = Math.min(u.l, k.l); u.c = k.c; }
+      else out.push({ t, o: k.o, h: k.h, l: k.l, c: k.c });
+    }
+    return out;
+  }
+
+  async function pedirVelas(alvo, tf, n) {
+    if (alvo.fonte === 'pagina') {
+      const v1 = await carregarColecao(alvo.titulo);
+      return agregar(v1, tf).slice(-n);
+    }
     return new Promise((ok, falha) => {
       chrome.runtime.sendMessage({ tipo: 'velas', fonte: alvo.fonte, simbolo: alvo.simbolo, chave: cfg.chave, n, tf }, (r) => {
         if (chrome.runtime.lastError) return falha(new Error(chrome.runtime.lastError.message));
@@ -200,6 +251,11 @@
     try {
       status('Testando as combinações de ' + ativo.titulo + ' com velas reais...', 'aviso');
       const porTf = { 1: await pedirVelas(ativo, 1, 5000), 5: await pedirVelas(ativo, 5, 5000) };
+      if (ativo.fonte === 'pagina' && porTf[1].length < MIN_VELAS) {
+        status(`${ativo.titulo}: juntando velas pela tela (${porTf[1].length} de ${MIN_VELAS} de 1 min). Deixe este ativo aberto.`, 'aviso');
+        ativo.juntando = true;
+        return;
+      }
       rankingAtivo = rankear(porTf);
       rankingEm = Date.now();
       escolha = rankingAtivo.melhor;
@@ -217,13 +273,20 @@
     const novo = detectarAtivo();
     const chave = [novo.titulo, cfg.chave, cfg.modo, cfg.estrategia, cfg.tfManual, cfg.expira, cfg.rigor, cfg.minAcerto, cfg.minOps].join('|');
     if (chave !== chaveAtivo) { chaveAtivo = chave; await prepararAtivo(); return; }
+    // ativo da tela ainda juntando velas: reavalia quando tiver o mínimo
+    if (ativo && ativo.juntando) {
+      const n = (colecao[ativo.titulo] || []).length;
+      if (n >= MIN_VELAS) chaveAtivo = '';
+      else status(`${ativo.titulo}: juntando velas pela tela (${n} de ${MIN_VELAS} de 1 min). Deixe este ativo aberto.`, 'aviso');
+      return;
+    }
     const lista = combinacoes();
     if (!ativo || ativo.erro || !lista.length || buscando) return;
     // refaz o teste a cada hora
     if (cfg.modo !== 'manual' && Date.now() - rankingEm > 60 * MINUTO) { chaveAtivo = ''; return; }
     const agora = Date.now();
     // forex: uma busca por minuto (limite do plano grátis); cripto: a cada 2 s
-    const devido = ativo.fonte === 'cripto'
+    const devido = ativo.fonte === 'cripto' || ativo.fonte === 'pagina'
       ? agora - ultimaBusca >= 2000
       : Math.floor((agora - 3000) / MINUTO) > Math.floor((ultimaBusca - 3000) / MINUTO);
     if (!devido) return;
