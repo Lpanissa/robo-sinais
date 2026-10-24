@@ -7,7 +7,7 @@
   const RETORNO = 0.85; // retorno médio da Olymp no acerto, usado nas contas do teste
   const EMPATE = (100 / (1 + RETORNO));
   const PADRAO = {
-    ligado: false, modo: 'melhor', estrategia: 'conf', expira: 1, tfManual: 1,
+    ligado: false, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
     maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5,
   };
@@ -134,7 +134,7 @@
 
   // ---------- estado ----------
   let cfg = { ...PADRAO };
-  let motor = criarMotor();
+  let motores = {}; // um motor por combinação ativa
   let ativo = null;
   let chaveAtivo = '';
   let escolha = null; // { tf, est, nome, exp, a, b, total }
@@ -147,6 +147,7 @@
   let statusTxt = 'Carregando...';
   let statusTipo = 'aviso';
   let operando = false;
+  let livreAte = 0; // não abre outra operação antes da anterior terminar
   const sessao = { ops: [], perdasSeguidas: 0, resultado: 0, parado: '' };
 
   const salvar = () => chrome.storage.local.set({ cfg });
@@ -162,19 +163,32 @@
     });
   }
 
-  // o que o robô vai usar agora: a melhor combinação aprovada ou a escolha manual
-  function combinacao() {
+  // combinações que o robô vai operar agora
+  // todas: cada estratégia/vela aprovada no teste (a melhor expiração de cada); melhor: só a primeira; manual: a escolhida
+  const chaveComb = (c) => `${c.tf}|${c.est}|${c.exp}`;
+  function combinacoes() {
     if (cfg.modo === 'manual') {
       const e = ESTRATEGIAS.find((x) => x.id === cfg.estrategia) || ESTRATEGIAS[0];
-      return { tf: cfg.tfManual, est: e.id, nome: e.nome, exp: cfg.expira, manual: true };
+      return [{ tf: cfg.tfManual, est: e.id, nome: e.nome, exp: cfg.expira, manual: true }];
     }
-    return escolha;
+    if (!rankingAtivo) return [];
+    if (cfg.modo === 'melhor') return rankingAtivo.melhor ? [rankingAtivo.melhor] : [];
+    const vistos = new Set();
+    const lista = [];
+    for (const r of rankingAtivo.aprovadas) {
+      const k = r.tf + '|' + r.est;
+      if (vistos.has(k)) continue;
+      vistos.add(k);
+      lista.push(r);
+    }
+    return lista;
   }
-  const motorCfg = () => { const c = combinacao(); return { rigor: cfg.rigor, expira: c ? c.exp : cfg.expira, tf: (c ? c.tf : 1) * MINUTO }; };
+  const combinacao = () => combinacoes()[0] || null;
+  const motorCfg = (c) => ({ rigor: cfg.rigor, expira: c.exp, tf: c.tf * MINUTO });
 
   async function prepararAtivo() {
     ativo = detectarAtivo();
-    motor = criarMotor();
+    motores = {};
     escolha = null;
     rankingAtivo = null;
     ultimaBusca = 0;
@@ -186,10 +200,13 @@
       rankingAtivo = rankear(porTf);
       rankingEm = Date.now();
       escolha = rankingAtivo.melhor;
-      const c = combinacao();
-      const tf = c ? c.tf : 1;
-      carregarHistorico(motor, porTf[tf].slice(-600), motorCfg());
-      status(c ? 'Ao vivo · ' + ativo.titulo : `Nenhuma combinação de ${ativo.titulo} passou no teste. Veja o ranking geral.`, c ? 'ok' : 'erro');
+      const lista = combinacoes();
+      for (const c of lista) {
+        const m = criarMotor();
+        carregarHistorico(m, porTf[c.tf].slice(-600), motorCfg(c));
+        motores[chaveComb(c)] = m;
+      }
+      status(lista.length ? `Ao vivo · ${ativo.titulo} · ${lista.length} ${lista.length === 1 ? 'combinação' : 'combinações'}` : `Nenhuma combinação de ${ativo.titulo} passou no teste. Veja o ranking geral.`, lista.length ? 'ok' : 'erro');
     } catch (e) { status('Erro nas cotações: ' + e.message, 'erro'); chaveAtivo = ''; }
   }
 
@@ -197,23 +214,31 @@
     const novo = detectarAtivo();
     const chave = [novo.titulo, cfg.chave, cfg.modo, cfg.estrategia, cfg.tfManual, cfg.expira, cfg.rigor, cfg.minAcerto, cfg.minOps].join('|');
     if (chave !== chaveAtivo) { chaveAtivo = chave; await prepararAtivo(); return; }
-    if (!ativo || ativo.erro || !motor.velas.length || buscando) return;
+    const lista = combinacoes();
+    if (!ativo || ativo.erro || !lista.length || buscando) return;
     // refaz o teste a cada hora
-    if (cfg.modo === 'melhor' && Date.now() - rankingEm > 60 * MINUTO) { chaveAtivo = ''; return; }
-    const c = combinacao();
-    if (!c) return;
-    const tfMs = c.tf * MINUTO;
+    if (cfg.modo !== 'manual' && Date.now() - rankingEm > 60 * MINUTO) { chaveAtivo = ''; return; }
     const agora = Date.now();
+    // forex: uma busca por minuto (limite do plano grátis); cripto: a cada 2 s
     const devido = ativo.fonte === 'cripto'
       ? agora - ultimaBusca >= 2000
-      : Math.floor((agora - 3000) / tfMs) > Math.floor((ultimaBusca - 3000) / tfMs);
+      : Math.floor((agora - 3000) / MINUTO) > Math.floor((ultimaBusca - 3000) / MINUTO);
     if (!devido) return;
     buscando = true;
     ultimaBusca = agora;
     try {
-      const v = await pedirVelas(ativo, c.tf, 3);
-      v.forEach((k, i) => atualizar(motor, k, i < v.length - 1, motorCfg(), aoAvisar));
-      status('Ao vivo · ' + ativo.titulo, 'ok');
+      const tfs = [...new Set(lista.map((c) => c.tf))];
+      for (const tf of tfs) {
+        // forex com velas de 5 min: só busca quando uma vela de 5 min fecha
+        if (ativo.fonte === 'forex' && tf === 5 && Math.floor((agora - 3000) / (5 * MINUTO)) === Math.floor((agora - 3000 - MINUTO) / (5 * MINUTO))) continue;
+        const v = await pedirVelas(ativo, tf, 3);
+        for (const c of lista.filter((x) => x.tf === tf)) {
+          const m = motores[chaveComb(c)];
+          if (!m) continue;
+          v.forEach((k, i) => atualizar(m, k, i < v.length - 1, motorCfg(c), (id, tipo) => aoAvisar(c, m, id, tipo)));
+        }
+      }
+      status(`Ao vivo · ${ativo.titulo} · ${lista.length} ${lista.length === 1 ? 'combinação' : 'combinações'}`, 'ok');
     } catch (e) { status('Erro nas cotações: ' + e.message, 'aviso'); }
     buscando = false;
   }
@@ -243,10 +268,9 @@
   }
 
   // ---------- operar ----------
-  function aoAvisar(id, tipo) {
-    const c = combinacao();
-    if (!c || id !== c.est || tipo !== 'sinal') return;
-    const op = motor.S[id].ops[motor.S[id].ops.length - 1];
+  function aoAvisar(c, m, id, tipo) {
+    if (id !== c.est || tipo !== 'sinal') return;
+    const op = m.S[id].ops[m.S[id].ops.length - 1];
     if (op && op.res === 'aberta') operar(op, c);
   }
 
@@ -261,7 +285,7 @@
     const base = { hora: sinal.t, dir: sinal.dir, estrategia: c.nome };
     if (!cfg.ligado) { registrar({ ...base, situacao: 'só sinal (robô desligado)' }); return; }
     if (sessao.parado) { registrar({ ...base, situacao: 'não operou: ' + sessao.parado }); return; }
-    if (operando) return;
+    if (operando || Date.now() < livreAte) { registrar({ ...base, situacao: 'pulou: já havia operação aberta' }); return; }
     operando = true;
     const valor = valorDaEntrada();
     const reg = registrar({ ...base, valor, conta: conta(), situacao: 'entrando...' });
@@ -273,6 +297,7 @@
       if (!botao || botao.disabled) throw new Error('o botão de operar não está disponível');
       botao.click();
       reg.situacao = 'em andamento';
+      livreAte = Date.now() + c.exp * MINUTO + 5000;
       reg.saldoAntes = antes;
       setTimeout(() => conferir(reg), c.exp * MINUTO + 8000);
     } catch (e) {
@@ -370,14 +395,23 @@
   function desenhar(refazerForm) {
     if (!corpo) return;
     const cor = { ok: '#2fc59c', aviso: '#e5a93a', erro: '#f0675b' }[statusTipo];
-    const c = combinacao();
-    const S = c ? motor.S[c.est] : null;
-    const aberta = S && S.ops.find((o) => o.res === 'aberta');
+    const lista = combinacoes();
+    const c = lista[0] || null;
     const agora = Date.now();
     const seg = (t) => Math.max(0, Math.ceil((t - agora) / 1000));
+    // o sinal mostrado: uma operação aberta de qualquer combinação; senão o alerta mais próximo
+    let aberta = null, pre = null, deQuem = null;
+    for (const x of lista) {
+      const m = motores[chaveComb(x)];
+      const S = m && m.S[x.est];
+      if (!S) continue;
+      const a = S.ops.find((o) => o.res === 'aberta');
+      if (a && !aberta) { aberta = a; deQuem = x; }
+      if (S.pre && (!pre || S.pre.ateT < pre.ateT)) { pre = S.pre; if (!aberta) deQuem = x; }
+    }
     let sinal;
-    if (aberta) sinal = { bg: aberta.dir === 'up' ? '#2fc59c' : '#f0675b', ic: aberta.dir === 'up' ? '▲' : '▼', t: aberta.dir === 'up' ? 'COMPRA' : 'VENDA', s: `entrada ${hora(aberta.t)} · termina ${hora(aberta.fimT)} (${seg(aberta.fimT)} s)` };
-    else if (S && S.pre) sinal = { bg: '#e5a93a', ic: '!', t: 'Atenção: possível ' + (S.pre.dir === 'up' ? 'compra' : 'venda'), s: `confirma às ${hora(S.pre.ateT)} (${seg(S.pre.ateT)} s)` };
+    if (aberta) sinal = { bg: aberta.dir === 'up' ? '#2fc59c' : '#f0675b', ic: aberta.dir === 'up' ? '▲' : '▼', t: aberta.dir === 'up' ? 'COMPRA' : 'VENDA', s: `${deQuem.nome} · entrada ${hora(aberta.t)} · termina ${hora(aberta.fimT)} (${seg(aberta.fimT)} s)` };
+    else if (pre) sinal = { bg: '#e5a93a', ic: '!', t: 'Atenção: possível ' + (pre.dir === 'up' ? 'compra' : 'venda'), s: `${deQuem.nome} · confirma às ${hora(pre.ateT)} (${seg(pre.ateT)} s)` };
     else sinal = { bg: '#253042', ic: '○', t: 'Aguardando', s: c ? 'sem sinal por perto' : 'sem combinação aprovada neste ativo' };
     const ct = conta();
     const real = ct && !/demo/i.test(ct);
@@ -387,7 +421,7 @@
     let comb;
     if (!c) comb = `<div class="rs-box">Nenhuma combinação deste ativo passou de ${cfg.minAcerto}% nas duas partes do teste. O robô não vai operar aqui.</div>`;
     else if (c.manual) comb = `<div class="rs-box">Manual: ${esc(descr(c))}</div>`;
-    else comb = `<div class="rs-box"><b>Melhor agora:</b> ${esc(descr(c))}<br><span class="rs-mono">teste ${pct(c.a.ac)} (${c.a.n}) · conferência ${pct(c.b.ac)} (${c.b.n}) · empate em ${EMPATE.toFixed(0)}%</span></div>`;
+    else comb = `<div class="rs-box"><b>${lista.length === 1 ? 'Operando 1 combinação' : `Operando ${lista.length} combinações`}</b> (empate em ${EMPATE.toFixed(0)}%)<br>${lista.map((x) => `${esc(descr(x))}<br><span class="rs-mono" style="color:#8b97a8">teste ${pct(x.a.ac)} (${x.a.n}) · conferência ${pct(x.b.ac)} (${x.b.n})</span>`).join('<br>')}</div>`;
 
     const geral = rankingGeral ? `<div class="rs-box"><b>Ranking geral</b> (melhor combinação de cada ativo)<br>${rankingGeral.map((r) => `${esc(r.titulo)}: ${r.erro ? 'erro' : r.melhor ? `${esc(descr(r.melhor))} · ${pct(r.melhor.total.ac)} em ${r.melhor.total.n}` : 'nenhuma aprovada'}`).join('<br>')}</div>` : '';
 
@@ -405,7 +439,7 @@ ${geral}`;
 
     const form = `
 <div class="rs-l" style="margin-top:4px">Ajustes</div>
-<label>Como escolher<select data-k="modo"><option value="melhor"${cfg.modo === 'melhor' ? ' selected' : ''}>Melhor combinação do ativo (automático)</option><option value="manual"${cfg.modo === 'manual' ? ' selected' : ''}>Eu escolho</option></select></label>
+<label>Como escolher<select data-k="modo"><option value="todas"${cfg.modo === 'todas' ? ' selected' : ''}>Todas as combinações aprovadas (automático)</option><option value="melhor"${cfg.modo === 'melhor' ? ' selected' : ''}>Só a melhor combinação (automático)</option><option value="manual"${cfg.modo === 'manual' ? ' selected' : ''}>Eu escolho</option></select></label>
 ${cfg.modo === 'manual' ? `<div class="rs-row">
 <label>Estratégia<select data-k="estrategia">${ESTRATEGIAS.map((e) => `<option value="${e.id}"${cfg.estrategia === e.id ? ' selected' : ''}>${e.nome}</option>`).join('')}</select></label>
 <label>Velas<select data-k="tfManual">${[1, 5].map((m) => `<option value="${m}"${cfg.tfManual === m ? ' selected' : ''}>${m} min</option>`).join('')}</select></label>
