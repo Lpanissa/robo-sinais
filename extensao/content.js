@@ -736,17 +736,30 @@
   }
 
   // ---------- ordens em andamento guardadas (se a página recarregar, o resultado é conferido depois) ----------
-  const lerPendentes = () => new Promise((ok) => chrome.storage.local.get('pendentes', (r) => ok((r && r.pendentes) || {})));
-  async function guardarPendente(p) { const m = await lerPendentes(); m[p.id] = p; chrome.storage.local.set({ pendentes: m }); }
-  async function tirarPendente(id) { const m = await lerPendentes(); if (m[id]) { delete m[id]; chrome.storage.local.set({ pendentes: m }); } }
+  // cada ordem fica numa chave própria (pend_<id>): várias ordens abertas no mesmo segundo, ou em janelas
+  // diferentes, não apagam mais umas às outras (antes era um objeto só e a última gravação engolia as outras)
+  const PEND = 'pend_';
+  const lerPendentes = () => new Promise((ok) => chrome.storage.local.get(null, (r) => {
+    const m = {};
+    for (const [k, v] of Object.entries(r || {})) if (k.startsWith(PEND) && v) m[v.id] = v;
+    ok(m);
+  }));
+  // passa as ordens do formato antigo (um objeto só) para uma chave cada
+  chrome.storage.local.get('pendentes', (r) => {
+    const velho = (r && r.pendentes) || {};
+    const novo = {};
+    for (const v of Object.values(velho)) if (v && v.id) novo[PEND + v.id] = v;
+    if (r && r.pendentes) chrome.storage.local.set(novo, () => chrome.storage.local.remove('pendentes'));
+  });
+  function guardarPendente(p) { chrome.storage.local.set({ [PEND + p.id]: p }); }
+  function tirarPendente(id) { chrome.storage.local.remove(PEND + id); }
   async function conferirOrfas() {
     const m = await lerPendentes();
     const minhas = new Set(sessao.ops.filter((r) => r.situacao === 'em andamento').map((r) => r.id));
     const vencidas = Object.values(m).filter((p) => p.fim + 30000 < Date.now() && !minhas.has(p.id));
     if (!vencidas.length) return;
     // tira da lista antes de conferir, para outra janela não conferir a mesma
-    for (const p of vencidas) delete m[p.id];
-    await new Promise((ok) => chrome.storage.local.set({ pendentes: m }, ok));
+    await new Promise((ok) => chrome.storage.local.remove(vencidas.map((p) => PEND + p.id), ok));
     for (const p of vencidas) {
       let resultado = null, situacao = 'sem resultado (a página recarregou)';
       try {
