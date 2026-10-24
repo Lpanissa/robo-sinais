@@ -537,8 +537,9 @@ function placar(S, cfg, zero) {
     if (reg.resultado != null) {
       sessao.resultado += reg.resultado;
       sessao.perdasSeguidas = reg.resultado < 0 ? sessao.perdasSeguidas + 1 : 0;
-      if (sessao.perdasSeguidas >= cfg.maxPerdasSeguidas) parar(`${sessao.perdasSeguidas} perdas seguidas`);
-      if (-sessao.resultado >= cfg.limitePerda) parar(`prejuízo da sessão chegou a ${(-sessao.resultado).toFixed(2)}`);
+      // 0 = sem limite
+      if (cfg.maxPerdasSeguidas > 0 && sessao.perdasSeguidas >= cfg.maxPerdasSeguidas) parar(`${sessao.perdasSeguidas} perdas seguidas`);
+      if (cfg.limitePerda > 0 && -sessao.resultado >= cfg.limitePerda) parar(`prejuízo da sessão chegou a ${(-sessao.resultado).toFixed(2)}`);
     }
     desenhar();
   }
@@ -671,8 +672,8 @@ ${cfg.modo === 'manual' ? `<div class="rs-row">
 <div class="rs-row">
 <label>Tipo de entrada<select data-k="modoValor"><option value="percent"${cfg.modoValor === 'percent' ? ' selected' : ''}>% da banca</option><option value="fixo"${cfg.modoValor === 'fixo' ? ' selected' : ''}>Valor fixo</option></select></label>
 ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="percent" value="${cfg.percent}" inputmode="decimal"></label>` : `<label>Valor por operação<input data-k="valor" value="${cfg.valor}" inputmode="decimal"></label>`}
-<label>Parar após perdas seguidas<input data-k="maxPerdasSeguidas" value="${cfg.maxPerdasSeguidas}" inputmode="numeric"></label>
-<label>Parar se perder na sessão<input data-k="limitePerda" value="${cfg.limitePerda}" inputmode="decimal"></label>
+<label>Parar após perdas seguidas (0 = nunca)<input data-k="maxPerdasSeguidas" value="${cfg.maxPerdasSeguidas}" inputmode="numeric"></label>
+<label>Parar se perder na sessão (0 = nunca)<input data-k="limitePerda" value="${cfg.limitePerda}" inputmode="decimal"></label>
 <label>Acerto mínimo no teste (%)<input data-k="minAcerto" value="${cfg.minAcerto}" inputmode="numeric"></label>
 <label>Sinais mínimos no teste<input data-k="minOps" value="${cfg.minOps}" inputmode="numeric"></label>
 </div>
