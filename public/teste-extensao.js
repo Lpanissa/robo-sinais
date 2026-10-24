@@ -225,7 +225,8 @@ function fechar(m, cfg, aviso) {
   const sobe = k.c > k.o, desce = k.c < k.o;
   for (const s of ESTRATEGIAS) {
     const S = m.S[s.id];
-    let aberta = S.ops.some((o) => o.res === 'aberta');
+    // sobrepor: pode abrir um sinal novo mesmo com outro ainda em andamento (a extensão usa)
+    let aberta = !cfg.sobrepor && S.ops.some((o) => o.res === 'aberta');
     const R = s.fn(I, cfg.rigor, v) || {};
     if (S.pre) {
       const velaConfirma = S.pre.dir === 'up' ? sobe : desce;
@@ -278,7 +279,7 @@ function placar(S, cfg, zero) {
   const PADRAO = {
     ligado: false, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
-    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 2,
+    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0,
   };
 
   // ---------- ativos ----------
@@ -456,7 +457,7 @@ function placar(S, cfg, zero) {
     return lista;
   }
   const combinacao = () => combinacoes()[0] || null;
-  const motorCfg = (c) => ({ rigor: cfg.rigor, expira: c.exp, tf: c.tf * MINUTO });
+  const motorCfg = (c) => ({ rigor: cfg.rigor, expira: c.exp, tf: c.tf * MINUTO, sobrepor: true });
 
   async function prepararAtivo() {
     ativo = detectarAtivo();
@@ -573,7 +574,7 @@ function placar(S, cfg, zero) {
     if (cg.parado) return 'robô parado na conta: ' + cg.parado;
     const abertas = Object.values(cg.abertas);
     if (cfg.maxAbertas > 0 && abertas.length >= cfg.maxAbertas) return `já há ${abertas.length} operações abertas na conta`;
-    if (ativo.fonte === 'cripto' && abertas.some((a) => a.cripto && a.dir === dir && a.ativo !== ativo.titulo)) return 'já há cripto aberta na mesma direção';
+    if (cfg.maxAbertas > 0 && ativo.fonte === 'cripto' && abertas.some((a) => a.cripto && a.dir === dir && a.ativo !== ativo.titulo)) return 'já há cripto aberta na mesma direção';
     cg.abertas = { ...cg.abertas, [id]: { ativo: ativo.titulo, cripto: ativo.fonte === 'cripto', dir, ate, aba: ABA } };
     await gravarConta(cg);
     return null;
@@ -588,7 +589,9 @@ function placar(S, cfg, zero) {
   async function operar(sinal, c) {
     const base = { hora: sinal.t, dir: sinal.dir, estrategia: c.nome };
     if (!cfg.ligado) { registrar({ ...base, situacao: 'só sinal (robô desligado)' }); return; }
-    if (operando || Date.now() < livreAte) { registrar({ ...base, situacao: 'pulou: já havia operação aberta nesta janela' }); return; }
+    // várias operações podem ficar abertas; só espera a anterior terminar de ser digitada na Olymp
+    for (let i = 0; i < 40 && operando; i++) await espera(500);
+    if (operando) { registrar({ ...base, situacao: 'pulou: a Olymp não liberou a tela a tempo' }); return; }
     operando = true;
     const id = ABA + '-' + sinal.t + '-' + c.est;
     const motivo = await reservar(id, sinal.dir, Date.now() + c.exp * MINUTO + 15000);
@@ -610,7 +613,6 @@ function placar(S, cfg, zero) {
       travadas = 0;
       botao.click();
       reg.situacao = 'em andamento';
-      livreAte = Date.now() + c.exp * MINUTO + 5000;
       reg.saldoAntes = antes;
       setTimeout(() => conferir(reg), c.exp * MINUTO + 8000);
     } catch (e) {

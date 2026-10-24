@@ -56,7 +56,8 @@ function fechar(m, cfg, aviso) {
   const sobe = k.c > k.o, desce = k.c < k.o;
   for (const s of ESTRATEGIAS) {
     const S = m.S[s.id];
-    let aberta = S.ops.some((o) => o.res === 'aberta');
+    // sobrepor: pode abrir um sinal novo mesmo com outro ainda em andamento (a extensão usa)
+    let aberta = !cfg.sobrepor && S.ops.some((o) => o.res === 'aberta');
     const R = s.fn(I, cfg.rigor, v) || {};
     if (S.pre) {
       const velaConfirma = S.pre.dir === 'up' ? sobe : desce;
