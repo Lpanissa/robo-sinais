@@ -1,12 +1,30 @@
 {
   "manifest_version": 3,
-  "name": "Robô de Sinais - Piloto Demo",
+  "name": "Robô de Sinais - Piloto",
   "version": "1.15.0",
-  "description": "Opera os sinais do Robô de Sinais na conta DEMO da Olymp Trade. Não opera na conta real.",
-  "permissions": ["storage"],
-  "host_permissions": ["https://api.binance.com/*", "https://data-api.binance.vision/*", "https://api.twelvedata.com/*"],
-  "background": { "service_worker": "background.js" },
+  "description": "Opera os sinais do Robô de Sinais na Olymp Trade e manda o histórico para o app.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.binance.com/*",
+    "https://data-api.binance.vision/*",
+    "https://api.twelvedata.com/*",
+    "https://fyxksvydxwvygjebanno.supabase.co/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
-    { "matches": ["https://olymptrade.com/*"], "js": ["motor.js", "content.js"], "run_at": "document_idle" }
+    {
+      "matches": [
+        "https://olymptrade.com/*"
+      ],
+      "js": [
+        "motor.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
   ]
 }

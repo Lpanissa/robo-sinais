@@ -481,7 +481,7 @@
   const retornoAtivo = () => { const n = parseFloat((q('[data-test="asset-select-button-title-value"]')?.innerText || '').replace(',', '.')); return isFinite(n) ? n / 100 : RETORNO; };
 
   async function operar(sinal, c) {
-    const base = { hora: sinal.t, dir: sinal.dir, estrategia: c.nome };
+    const base = { hora: sinal.t, dir: sinal.dir, estrategia: c.nome, ativo: ativo ? ativo.titulo : '' };
     if (!cfg.ligado) { registrar({ ...base, situacao: 'só sinal (robô desligado)' }); return; }
     // várias operações podem ficar abertas; só espera a anterior terminar de ser digitada na Olymp
     for (let i = 0; i < 40 && operando; i++) await espera(500);
@@ -507,6 +507,7 @@
       travadas = 0;
       botao.click();
       reg.situacao = 'em andamento';
+      enviarOrdem(reg);
       reg.saldoAntes = antes;
       setTimeout(() => conferir(reg), c.exp * MINUTO + 8000);
     } catch (e) {
@@ -680,8 +681,8 @@
         if (conf) { conf.click(); await espera(500); }
         await espera(2500); // dá tempo do cartão sumir, para não contar duas vezes
         const reg = minhas.pop();
-        if (reg) { liberar(reg.id); if (cheio > 0) reg.maxFrac = Math.max(reg.maxFrac || -9, v / cheio); reg.fechouAntes = Math.round(v * 100) / 100; reg.situacao = `fechou antes (+${v.toFixed(2)})`; }
-        else registrar({ hora: Date.now(), dir: '', estrategia: 'ordem manual', situacao: 'fechou antes (manual)', resultado: Math.round(v * 100) / 100 });
+        if (reg) { liberar(reg.id); if (cheio > 0) reg.maxFrac = Math.max(reg.maxFrac || -9, v / cheio); reg.fechouAntes = Math.round(v * 100) / 100; reg.situacao = `fechou antes (+${v.toFixed(2)})`; reg.resultado = reg.fechouAntes; enviarOrdem(reg); }
+        else enviarOrdem(registrar({ hora: Date.now(), dir: '', estrategia: 'ordem manual', situacao: 'fechou antes (manual)', resultado: Math.round(v * 100) / 100, conta: conta() }));
         status(proteger ? `Protegeu o lucro (a ordem estava voltando): +${v.toFixed(2)}` : `Fechou antes no lucro: +${v.toFixed(2)}`, 'ok');
       } finally { fechando = false; }
     }
@@ -726,6 +727,7 @@
       cg.perdasSeguidas = 0;
       cg.ganhos = (cg.ganhos || 0) + 1;
       await gravarConta(cg);
+      enviarOrdem(reg);
       desenhar();
       return;
     }
@@ -752,9 +754,23 @@
       await gravarConta(cg);
       if (cg.parado) parar(cg.parado);
     }
+    enviarOrdem(reg);
     desenhar();
   }
   function parar(motivo) { sessao.parado = motivo; cfg.ligado = false; salvar(); }
+  // manda a ordem para o app do celular (pelo background, que guarda numa fila se estiver sem internet)
+  function enviarOrdem(reg) {
+    try {
+      if (!vivo()) return;
+      const ct = String(reg.conta || conta() || '');
+      chrome.runtime.sendMessage({ tipo: 'ordem', linha: {
+        id: reg.id || ('manual-' + ABA + '-' + reg.hora), hora: new Date(reg.hora || Date.now()).toISOString(),
+        conta: /demo/i.test(ct) ? 'demo' : 'real', ativo: reg.ativo || (ativo ? ativo.titulo : ''), estrategia: reg.estrategia || '',
+        dir: reg.dir || '', valor: reg.valor ?? null, resultado: reg.resultado ?? null, situacao: reg.situacao || '',
+        fechou_antes: reg.fechouAntes != null || /fechou antes/.test(reg.situacao || ''), se_fosse_ate_o_fim: reg.seFosseAteOFim ?? null,
+      } }, () => void chrome.runtime.lastError);
+    } catch (e) { /* aba antiga */ }
+  }
   function registrar(r) {
     sessao.ops.unshift(r);
     if (sessao.ops.length > 30) sessao.ops.pop();
