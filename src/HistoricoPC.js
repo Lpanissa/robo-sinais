@@ -54,7 +54,8 @@ export default function HistoricoPC() {
     return () => clearInterval(id);
   }, [carregar]);
 
-  const lista = (ordens || []).filter((o) => conta === 'todas' || o.conta === conta);
+  // ordens que o robô perdeu o acompanhamento (sem resultado) não aparecem
+  const lista = (ordens || []).filter((o) => (conta === 'todas' || o.conta === conta) && !/^sem resultado/.test(o.situacao || ''));
   const fechadas = lista.filter((o) => o.resultado != null);
   const ganhos = fechadas.filter((o) => o.resultado > 0).length;
   const perdas = fechadas.filter((o) => o.resultado < 0).length;
