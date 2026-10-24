@@ -553,15 +553,31 @@
     return max.sort((x, y) => x.top - y.top).map((x) => x.el);
   }
   const acharCardOrdem = () => acharCards()[0] || null;
+  // lista de Negociações aberta? (título "Negociações Abertas")
+  const listaAberta = () => [...document.querySelectorAll('h1, h2, h3, h4, div, span, p')].some((e) => {
+    if (!visivel(e)) return false;
+    const t = (e.innerText || '').trim();
+    if (/^(negociações abertas|negociacoes abertas|open trades)$/i.test(t)) return true;
+    // título grande "Negociações" do painel (o nome na barra lateral é pequeno)
+    return /^(negociações|negociacoes|trades)$/i.test(t) && parseFloat(getComputedStyle(e).fontSize) >= 20;
+  });
+  // botão "Negociações" da barra lateral (vem com o número de ordens antes, ex.: "7 Negociações")
+  function botaoNegociacoes() {
+    const cands = [...document.querySelectorAll('a, button, [role="button"], [data-test], div, span')].filter((b) => {
+      if (!visivel(b)) return false;
+      const t = (b.innerText || b.getAttribute('aria-label') || b.title || '').trim();
+      if (t.length > 30) return false;
+      const r = b.getBoundingClientRect();
+      return r.left < 200 && /(^|\n|\s)(negociações|negociacoes|trades)$/i.test(t);
+    });
+    // o maior deles (o item inteiro da barra, com ícone e número)
+    return cands.sort((x, y) => (y.getBoundingClientRect().width * y.getBoundingClientRect().height) - (x.getBoundingClientRect().width * x.getBoundingClientRect().height))[0] || null;
+  }
   async function abrirPainelDaOrdem() {
     let card = acharCardOrdem();
-    if (!card) {
-      const bt = [...document.querySelectorAll('button, [role="button"], a, [data-test]')].find((b) => {
-        if (!visivel(b)) return false;
-        const t = (b.innerText || b.getAttribute('aria-label') || b.title || '').trim();
-        return t.length < 30 && /^(negocia|trades|operaç)/i.test(t);
-      });
-      if (bt) { bt.click(); await espera(900); card = acharCardOrdem(); }
+    if (!card && !listaAberta()) {
+      const bt = botaoNegociacoes();
+      if (bt) { bt.click(); await espera(1200); card = acharCardOrdem(); }
     }
     if (card) { card.click(); await espera(900); }
   }
@@ -588,7 +604,7 @@
         cards[rodizio++ % cards.length].click();
         await espera(700);
         botoes = acharBotoesFechar();
-      } else if (!botoes.length && minhas.length) {
+      } else if (!botoes.length && (minhas.length || cfg.fecharManuais)) {
         ultimaAbertura = Date.now();
         await abrirPainelDaOrdem(); // abre a lista de Negociações e clica na ordem
         botoes = acharBotoesFechar();
@@ -696,7 +712,7 @@
   }
 
   // ---------- painel ----------
-  let painel, corpo, aberto = true;
+  let painel, corpo, aberto = false; // sempre começa minimizado
   const dois = (n) => String(n).padStart(2, '0');
   const hora = (t) => { const d = new Date(t); return `${dois(d.getHours())}:${dois(d.getMinutes())}:${dois(d.getSeconds())}`; };
   const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
@@ -711,6 +727,9 @@
 #rs-painel *{box-sizing:border-box}
 #rs-painel .rs-top{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #253042;cursor:pointer}
 #rs-painel .rs-top b{font-size:14px}
+#rs-painel.rs-mini{width:auto;border-radius:20px}
+#rs-painel.rs-mini .rs-top{border-bottom:0;padding:7px 12px;gap:7px;justify-content:flex-start}
+#rs-painel .rs-luz{width:10px;height:10px;border-radius:50%;flex:none}
 #rs-painel .rs-c{padding:10px 12px;display:flex;flex-direction:column;gap:9px}
 #rs-painel .rs-l{color:#8b97a8;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 #rs-painel .rs-st{display:flex;gap:6px;align-items:center;font-size:12px}
@@ -731,10 +750,11 @@
     document.head.appendChild(css);
     painel = document.createElement('div');
     painel.id = 'rs-painel';
-    painel.innerHTML = `<div class="rs-top"><b>Robô de Sinais</b><span class="rs-mono" id="rs-min">–</span></div><div class="rs-c" id="rs-corpo"></div>`;
+    painel.innerHTML = `<div class="rs-top"><span class="rs-luz" id="rs-luz"></span><b id="rs-tit">Robô de Sinais</b><span class="rs-mono" id="rs-min">+</span></div><div class="rs-c" id="rs-corpo" style="display:none"></div>`;
+    painel.classList.add('rs-mini');
     document.body.appendChild(painel);
     corpo = painel.querySelector('#rs-corpo');
-    painel.querySelector('.rs-top').addEventListener('click', () => { aberto = !aberto; corpo.style.display = aberto ? 'flex' : 'none'; painel.querySelector('#rs-min').textContent = aberto ? '–' : '+'; });
+    painel.querySelector('.rs-top').addEventListener('click', () => { aberto = !aberto; corpo.style.display = aberto ? 'flex' : 'none'; desenharTopo(); });
     corpo.addEventListener('change', aoMudar);
     corpo.addEventListener('click', aoClicar);
     desenhar(true);
@@ -762,8 +782,18 @@
     if (a === 'assertivo') { Object.assign(cfg, { minAcerto: 60, minOps: 60, sempreLeitura: 0, modo: 'todas', autoAtivo: 1 }); ultimaEscolha = 0; salvar(); desenhar(true); }
   }
 
+  // minimizado: só a bolinha verde (ligado) ou vermelha (desligado)
+  function desenharTopo() {
+    if (!painel) return;
+    painel.classList.toggle('rs-mini', !aberto);
+    const luz = painel.querySelector('#rs-luz'), tit = painel.querySelector('#rs-tit'), min = painel.querySelector('#rs-min');
+    luz.style.background = cfg.ligado ? '#2fc59c' : '#f0675b';
+    tit.textContent = aberto ? 'Robô de Sinais' : (cfg.ligado ? 'Ligado' : 'Desligado');
+    min.textContent = aberto ? '–' : '';
+  }
   function desenhar(refazerForm) {
     if (!corpo) return;
+    desenharTopo();
     const cor = { ok: '#2fc59c', aviso: '#e5a93a', erro: '#f0675b' }[statusTipo];
     const lista = combinacoes();
     const c = lista[0] || null;
