@@ -172,7 +172,8 @@ export default function App() {
       <TextInput
         style={s.input}
         value={rascunho[k] != null ? rascunho[k] : String(cfg[k])}
-        onChangeText={(t) => setRascunho((r) => ({ ...r, [k]: t }))}
+        // texto (a chave) é salvo na hora: no Android o app pode fechar antes do campo perder o foco
+        onChangeText={(t) => (extra.texto ? mudar({ [k]: t.trim() }) : setRascunho((r) => ({ ...r, [k]: t })))}
         onEndEditing={() => { if (rascunho[k] != null) { mudar({ [k]: extra.texto ? rascunho[k].trim() : numero(rascunho[k]) }); setRascunho((r) => { const n = { ...r }; delete n[k]; return n; }); } }}
         onBlur={() => { if (rascunho[k] != null) { mudar({ [k]: extra.texto ? rascunho[k].trim() : numero(rascunho[k]) }); setRascunho((r) => { const n = { ...r }; delete n[k]; return n; }); } }}
         keyboardType={extra.texto ? 'default' : 'decimal-pad'}
