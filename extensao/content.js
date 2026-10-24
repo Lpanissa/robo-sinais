@@ -10,7 +10,7 @@
     ligado: false, autoAtivo: false, sempreLeitura: 1, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
     maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0,
-    fecharAlvo: 0, fecharModo: 'percent', // fechar antes no lucro (0 = nunca); sem stop de perda
+    fecharAlvo: 0, fecharModo: 'percent', fecharManuais: 0, // fechar antes no lucro (0 = nunca); sem stop de perda
   };
 
   // ---------- ativos ----------
@@ -555,13 +555,24 @@
     }
     if (card) { card.click(); await espera(900); }
   }
+  // lucro cheio da ordem pelo próprio cartão da Olymp ("Valor Đ 1,00" e "· 85%")
+  function lucroCheio(b) {
+    let el = b;
+    for (let i = 0; i < 6 && el; i++, el = el.parentElement) {
+      const t = el.innerText || '';
+      const v = t.match(/Valor[^\d\n]{0,6}\n?[^\d\n]{0,6}(\d[\d.,]*)/i), r = t.match(/(\d{1,3})\s*%/);
+      if (v && r) { const n = lerValor(v[1]); if (n > 0) return n * (+r[1]) / 100; }
+    }
+    return valorDaEntrada() * retornoAtivo();
+  }
   async function vigiarFechamento() {
-    if (fechando || !cfg.ligado || !(cfg.fecharAlvo > 0)) return;
-    const minhas = sessao.ops.filter((r) => r.situacao === 'em andamento' && r.fechouAntes == null);
-    if (!minhas.length) { fecharInfo = cfg.ligado && cfg.fecharAlvo > 0 ? 'esperando uma ordem abrir' : ''; return; }
+    if (fechando || !(cfg.fecharAlvo > 0) || (!cfg.ligado && !cfg.fecharManuais)) return;
+    const minhas = cfg.ligado ? sessao.ops.filter((r) => r.situacao === 'em andamento' && r.fechouAntes == null) : [];
+    if (!minhas.length && !cfg.fecharManuais) { fecharInfo = 'esperando uma ordem abrir'; return; }
     let botoes = acharBotoesFechar();
-    // sem o botão na tela: abre a lista de negociações e clica na ordem aberta
     if (!botoes.length) {
+      // ordem do robô: abre a lista de negociações e clica na ordem aberta
+      if (!minhas.length) { fecharInfo = 'para as ordens manuais, deixe a lista de Negociações aberta na ordem'; return; }
       if (operando || Date.now() - ultimaAbertura < 4000) return;
       ultimaAbertura = Date.now();
       await abrirPainelDaOrdem();
@@ -573,7 +584,7 @@
       let v = lerValor(b.innerText || '');
       if (v == null && b.parentElement) v = lerValor((b.parentElement.innerText || '').split(/fechar antes|close early/i).pop());
       if (v == null || v <= 0) continue;
-      const alvo = cfg.fecharModo === 'valor' ? cfg.fecharAlvo : valorDaEntrada() * retornoAtivo() * cfg.fecharAlvo / 100;
+      const alvo = cfg.fecharModo === 'valor' ? cfg.fecharAlvo : lucroCheio(b) * cfg.fecharAlvo / 100;
       if (v + 1e-9 < alvo) continue;
       fechando = true;
       try {
@@ -583,11 +594,12 @@
         const conf = [...document.querySelectorAll('[role="dialog"] button, [class*="modal"] button, [class*="Modal"] button, [class*="popup"] button')]
           .find((x) => x !== b && x.offsetParent && /^(fechar|confirmar|sim|ok|close|confirm|yes)/i.test((x.innerText || '').trim()));
         if (conf) { conf.click(); await espera(500); }
+        await espera(2500); // dá tempo do cartão sumir, para não contar duas vezes
         const reg = minhas.pop();
         if (reg) { liberar(reg.id); reg.fechouAntes = Math.round(v * 100) / 100; reg.situacao = `fechou antes (+${v.toFixed(2)})`; }
+        else registrar({ hora: Date.now(), dir: '', estrategia: 'ordem manual', situacao: 'fechou antes (manual)', resultado: Math.round(v * 100) / 100 });
         status(`Fechou antes no lucro: +${v.toFixed(2)}`, 'ok');
       } finally { fechando = false; }
-      if (!minhas.length) break;
     }
   }
   setInterval(() => { vigiarFechamento().catch(() => {}); }, 700);
@@ -747,7 +759,7 @@ ${comb}
 ${sessao.parado || contaGlobal.parado ? `<div style="color:#f0675b;font-size:12px">Robô parou: ${esc(sessao.parado || contaGlobal.parado)}</div>` : ''}
 <div class="rs-row rs-mono" style="font-size:12px"><div>Esta janela: <b style="color:${sessao.resultado >= 0 ? '#2fc59c' : '#f0675b'}">${sessao.resultado >= 0 ? '+' : ''}${sessao.resultado.toFixed(2)}</b></div><div>${ganhos} ganhos · ${perdas} perdas</div></div>
 <div class="rs-row rs-mono" style="font-size:12px"><div>Conta toda: <b style="color:${(contaGlobal.resultado || 0) >= 0 ? '#2fc59c' : '#f0675b'}">${(contaGlobal.resultado || 0) >= 0 ? '+' : ''}${(contaGlobal.resultado || 0).toFixed(2)}</b></div><div>${contaGlobal.ganhos || 0} g · ${contaGlobal.perdas || 0} p · ${Object.keys(limparVencidas({ abertas: { ...(contaGlobal.abertas || {}) } }).abertas).length} abertas</div></div>
-<div class="rs-ops">${sessao.ops.slice(0, 8).map((o) => `<div class="rs-op"><span class="rs-mono">${hora(o.hora)} ${o.dir === 'up' ? '▲ Compra' : '▼ Venda'}</span><span>${esc(o.situacao)}</span><span class="rs-mono" style="color:${o.resultado > 0 ? '#2fc59c' : o.resultado < 0 ? '#f0675b' : '#8b97a8'}">${o.resultado != null ? (o.resultado > 0 ? '+' : '') + o.resultado.toFixed(2) : ''}</span></div>`).join('') || '<span style="color:#8b97a8">Nenhuma operação ainda</span>'}</div>
+<div class="rs-ops">${sessao.ops.slice(0, 8).map((o) => `<div class="rs-op"><span class="rs-mono">${hora(o.hora)} ${o.dir === 'up' ? '▲ Compra' : o.dir === 'down' ? '▼ Venda' : 'Manual'}</span><span>${esc(o.situacao)}</span><span class="rs-mono" style="color:${o.resultado > 0 ? '#2fc59c' : o.resultado < 0 ? '#f0675b' : '#8b97a8'}">${o.resultado != null ? (o.resultado > 0 ? '+' : '') + o.resultado.toFixed(2) : ''}</span></div>`).join('') || '<span style="color:#8b97a8">Nenhuma operação ainda</span>'}</div>
 <button class="rs-b" data-a="geral" style="background:#253042;color:#e7ecf3;font-size:12px;padding:7px">${rodandoGeral ? 'Testando todos os ativos...' : 'Testar todos os ativos (ranking geral)'}</button>
 ${geral}`;
 
@@ -767,6 +779,7 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
 <label>Parar após perdas seguidas (0 = nunca)<input data-k="maxPerdasSeguidas" value="${cfg.maxPerdasSeguidas}" inputmode="numeric"></label>
 <label>Parar se perder na sessão (0 = nunca)<input data-k="limitePerda" value="${cfg.limitePerda}" inputmode="decimal"></label>
 <div class="rs-row"><label>Fechar antes no lucro<select data-k="fecharModo"><option value="percent"${cfg.fecharModo !== 'valor' ? ' selected' : ''}>% do lucro cheio</option><option value="valor"${cfg.fecharModo === 'valor' ? ' selected' : ''}>Valor (US$)</option></select></label><label>Alvo (0 = nunca)<input data-k="fecharAlvo" value="${cfg.fecharAlvo}" inputmode="decimal"></label></div>
+<label>Fechar antes também nas minhas ordens manuais<select data-k="fecharManuais"><option value="0"${!cfg.fecharManuais ? ' selected' : ''}>Não, só nas do robô</option><option value="1"${cfg.fecharManuais ? ' selected' : ''}>Sim, nas minhas também</option></select></label>
 <label>Máx. operações abertas na conta (0 = sem limite)<input data-k="maxAbertas" value="${cfg.maxAbertas}" inputmode="numeric"></label>
 <label>Acerto mínimo no teste (%)<input data-k="minAcerto" value="${cfg.minAcerto}" inputmode="numeric"></label>
 <label>Sinais mínimos no teste<input data-k="minOps" value="${cfg.minOps}" inputmode="numeric"></label>
