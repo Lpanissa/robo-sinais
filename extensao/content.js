@@ -25,7 +25,7 @@
   const PADRAO = {
     ligado: false, autoAtivo: false, sempreLeitura: 1, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
-    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0,
+    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0, metaGanhoDia: 0, limitePerdaDia: 0,
     fecharAlvo: 0, fecharModo: 'auto', fecharManuais: 0, // fechar antes no lucro (0 = nunca); sem stop de perda
   };
 
@@ -722,6 +722,28 @@
     await new Promise((ok) => chrome.storage.local.set({ fecharStats: atual }, ok));
   }
 
+  // ---------- limites do dia (meta de ganho e limite de perda; zeram à meia-noite) ----------
+  const hojeTxt = () => { const d = new Date(); return `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`; };
+  const PARADA_DIA = /^(meta do dia|limite de perda do dia)/;
+  function somarNoDia(cg, valor) {
+    if (cg.dia !== hojeTxt()) { cg.dia = hojeTxt(); cg.resultadoDia = 0; }
+    cg.resultadoDia = (cg.resultadoDia || 0) + valor;
+    if (cfg.metaGanhoDia > 0 && cg.resultadoDia >= cfg.metaGanhoDia) cg.parado = `meta do dia batida: +${cg.resultadoDia.toFixed(2)} (volta amanhã)`;
+    if (cfg.limitePerdaDia > 0 && -cg.resultadoDia >= cfg.limitePerdaDia) cg.parado = `limite de perda do dia: ${cg.resultadoDia.toFixed(2)} (volta amanhã)`;
+  }
+  // virou o dia: se parou por meta/limite do dia, volta a operar sozinho
+  async function viradaDoDia() {
+    const cg = await lerConta();
+    if (cg.dia && cg.dia !== hojeTxt()) {
+      const eraDoDia = PARADA_DIA.test(cg.parado || '');
+      cg.dia = hojeTxt(); cg.resultadoDia = 0;
+      if (eraDoDia) { cg.parado = ''; cg.perdasSeguidas = 0; sessao.parado = ''; cfg.ligado = true; salvar(); }
+      await gravarConta(cg);
+      desenhar(true);
+    }
+  }
+  repetir(() => viradaDoDia(), 60000);
+
   async function conferir(reg) {
     if (reg.fechouAntes != null) {
       await anotarComparacao(reg);
@@ -734,7 +756,9 @@
       cg.resultado = (cg.resultado || 0) + reg.resultado;
       cg.perdasSeguidas = 0;
       cg.ganhos = (cg.ganhos || 0) + 1;
+      somarNoDia(cg, reg.resultado);
       await gravarConta(cg);
+      if (cg.parado) parar(cg.parado);
       enviarOrdem(reg);
       desenhar();
       return;
@@ -759,6 +783,7 @@
       // 0 = sem limite; os limites valem para a conta toda
       if (cfg.maxPerdasSeguidas > 0 && cg.perdasSeguidas >= cfg.maxPerdasSeguidas) cg.parado = `${cg.perdasSeguidas} perdas seguidas`;
       if (cfg.limitePerda > 0 && -cg.resultado >= cfg.limitePerda) cg.parado = `prejuízo da conta chegou a ${(-cg.resultado).toFixed(2)}`;
+      somarNoDia(cg, reg.resultado);
       await gravarConta(cg);
       if (cg.parado) parar(cg.parado);
     }
@@ -910,6 +935,7 @@ ${comb}
 <button class="rs-b" data-a="ligar" style="background:${cfg.ligado ? '#f0675b' : '#2fc59c'};color:#0e141d">${cfg.ligado ? 'Desligar robô' : 'Ligar robô (operar)'}</button>
 ${sessao.parado || contaGlobal.parado ? `<div style="color:#f0675b;font-size:12px">Robô parou: ${esc(sessao.parado || contaGlobal.parado)}</div>` : ''}
 ${fecharStats.n ? `<div class="rs-box">Fechar antes: <b>${fecharStats.n}</b> operações · fechando antes <b style="color:${fecharStats.fechando >= 0 ? '#2fc59c' : '#f0675b'}">${fecharStats.fechando >= 0 ? '+' : ''}${fecharStats.fechando.toFixed(2)}</b> · se deixasse até o fim <b style="color:${fecharStats.deixando >= 0 ? '#2fc59c' : '#f0675b'}">${fecharStats.deixando >= 0 ? '+' : ''}${fecharStats.deixando.toFixed(2)}</b><br>${fecharStats.viraram} delas teriam virado perda · ${fecharStats.fechando >= fecharStats.deixando ? 'fechar antes está compensando' : 'deixar até o fim estaria rendendo mais'}</div>` : ''}
+${(() => { const rd = contaGlobal.dia === hojeTxt() ? (contaGlobal.resultadoDia || 0) : 0; const lim = [cfg.metaGanhoDia > 0 ? 'meta +' + cfg.metaGanhoDia : '', cfg.limitePerdaDia > 0 ? 'limite -' + cfg.limitePerdaDia : ''].filter(Boolean).join(' · '); return `<div class="rs-mono" style="font-size:12px">Hoje (conta toda): <b style="color:${rd >= 0 ? '#2fc59c' : '#f0675b'}">${rd >= 0 ? '+' : ''}${rd.toFixed(2)}</b>${lim ? ` <span style="color:#8b97a8">· ${lim}</span>` : ''}</div>`; })()}
 <div class="rs-row rs-mono" style="font-size:12px"><div>Esta janela: <b style="color:${sessao.resultado >= 0 ? '#2fc59c' : '#f0675b'}">${sessao.resultado >= 0 ? '+' : ''}${sessao.resultado.toFixed(2)}</b></div><div>${ganhos} ganhos · ${perdas} perdas</div></div>
 <div class="rs-row rs-mono" style="font-size:12px"><div>Conta toda: <b style="color:${(contaGlobal.resultado || 0) >= 0 ? '#2fc59c' : '#f0675b'}">${(contaGlobal.resultado || 0) >= 0 ? '+' : ''}${(contaGlobal.resultado || 0).toFixed(2)}</b></div><div>${contaGlobal.ganhos || 0} g · ${contaGlobal.perdas || 0} p · ${Object.keys(limparVencidas({ abertas: { ...(contaGlobal.abertas || {}) } }).abertas).length} abertas</div></div>
 <div class="rs-ops">${sessao.ops.slice(0, 8).map((o) => `<div class="rs-op"><span class="rs-mono">${hora(o.hora)} ${o.dir === 'up' ? '▲ Compra' : o.dir === 'down' ? '▼ Venda' : 'Manual'}</span><span>${esc(o.situacao)}</span><span class="rs-mono" style="color:${o.resultado > 0 ? '#2fc59c' : o.resultado < 0 ? '#f0675b' : '#8b97a8'}">${o.resultado != null ? (o.resultado > 0 ? '+' : '') + o.resultado.toFixed(2) : ''}</span></div>`).join('') || '<span style="color:#8b97a8">Nenhuma operação ainda</span>'}</div>
@@ -929,6 +955,7 @@ ${cfg.modo === 'manual' ? `<div class="rs-row">
 <div class="rs-row">
 <label>Tipo de entrada<select data-k="modoValor"><option value="percent"${cfg.modoValor === 'percent' ? ' selected' : ''}>% da banca</option><option value="fixo"${cfg.modoValor === 'fixo' ? ' selected' : ''}>Valor fixo</option></select></label>
 ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="percent" value="${cfg.percent}" inputmode="decimal"></label>` : `<label>Valor por operação<input data-k="valor" value="${cfg.valor}" inputmode="decimal"></label>`}
+<div class="rs-row"><label>Meta de ganho por dia (0 = sem meta)<input data-k="metaGanhoDia" value="${cfg.metaGanhoDia}" inputmode="decimal"></label><label>Limite de perda por dia (0 = sem limite)<input data-k="limitePerdaDia" value="${cfg.limitePerdaDia}" inputmode="decimal"></label></div>
 <label>Parar após perdas seguidas (0 = nunca)<input data-k="maxPerdasSeguidas" value="${cfg.maxPerdasSeguidas}" inputmode="numeric"></label>
 <label>Parar se perder na sessão (0 = nunca)<input data-k="limitePerda" value="${cfg.limitePerda}" inputmode="decimal"></label>
 <div class="rs-row"><label>Fechar antes no lucro<select data-k="fecharModo"><option value="auto"${cfg.fecharModo === 'auto' ? ' selected' : ''}>Automático (o robô decide)</option><option value="percent"${cfg.fecharModo === 'percent' ? ' selected' : ''}>% do lucro cheio</option><option value="valor"${cfg.fecharModo === 'valor' ? ' selected' : ''}>Valor (US$)</option></select></label>${cfg.fecharModo === 'auto' ? '' : `<label>Alvo (0 = nunca)<input data-k="fecharAlvo" value="${cfg.fecharAlvo}" inputmode="decimal"></label>`}</div>
