@@ -74,4 +74,60 @@ export const ESTRATEGIAS = [
       return {};
     },
   },
+  {
+    id: 'esto_rsi', nome: 'Estocástico + RSI', desc: 'Estocástico abaixo de 10 com RSI abaixo de 35 compra; o contrário vende', imediato: true,
+    fn(I) {
+      if (I.st < 10 && I.r < 35) return { dir: 'up', ready: true };
+      if (I.st > 90 && I.r > 65) return { dir: 'down', ready: true };
+      if (I.st < 20 && I.r < 42) return { dir: 'up', near: true };
+      if (I.st > 80 && I.r > 58) return { dir: 'down', near: true };
+      return {};
+    },
+  },
+  {
+    id: 'esto_sr', nome: 'Estocástico + Suporte e resistência', desc: 'Estocástico extremo encostado no fundo ou topo das últimas 30 velas', imediato: true,
+    fn(I, rigor, v) {
+      const w = v.slice(-31, -1);
+      const hi = Math.max(...w.map((k) => k.h)), lo = Math.min(...w.map((k) => k.l));
+      const perto = I.atr * 0.5;
+      if (I.st < 10 && I.last.l - lo < perto) return { dir: 'up', ready: true };
+      if (I.st > 90 && hi - I.last.h < perto) return { dir: 'down', ready: true };
+      if (I.st < 20 && I.last.l - lo < perto * 2) return { dir: 'up', near: true };
+      if (I.st > 80 && hi - I.last.h < perto * 2) return { dir: 'down', near: true };
+      return {};
+    },
+  },
+  {
+    id: 'rsi_bb', nome: 'RSI + Bollinger', desc: 'RSI abaixo de 30 fora da banda inferior compra; o contrário vende', imediato: true,
+    fn(I) {
+      const c = I.last.c;
+      if (I.r < 30 && c <= I.b.lo) return { dir: 'up', ready: true };
+      if (I.r > 70 && c >= I.b.up) return { dir: 'down', ready: true };
+      if (I.r < 38 && c <= I.b.lo + (I.b.m - I.b.lo) * 0.3) return { dir: 'up', near: true };
+      if (I.r > 62 && c >= I.b.up - (I.b.up - I.b.m) * 0.3) return { dir: 'down', near: true };
+      return {};
+    },
+  },
+  {
+    id: 'bb3', nome: 'Bollinger 3 desvios', desc: 'Preço passou de 3 desvios da média 20: aposta na volta', imediato: true,
+    fn(I) {
+      const sd = (I.b.up - I.b.m) / 2, c = I.last.c;
+      if (c < I.b.m - 3 * sd) return { dir: 'up', ready: true };
+      if (c > I.b.m + 3 * sd) return { dir: 'down', ready: true };
+      if (c < I.b.m - 2.5 * sd) return { dir: 'up', near: true };
+      if (c > I.b.m + 2.5 * sd) return { dir: 'down', near: true };
+      return {};
+    },
+  },
+  {
+    id: 'contra5', nome: 'Contra 5 velas', desc: '5 velas seguidas na mesma cor: aposta na virada', imediato: true,
+    fn(I, rigor, v) {
+      const u = v.slice(-5), u4 = v.slice(-4);
+      if (u.every((k) => k.c > k.o)) return { dir: 'down', ready: true };
+      if (u.every((k) => k.c < k.o)) return { dir: 'up', ready: true };
+      if (u4.every((k) => k.c > k.o)) return { dir: 'down', near: true };
+      if (u4.every((k) => k.c < k.o)) return { dir: 'up', near: true };
+      return {};
+    },
+  },
 ];
