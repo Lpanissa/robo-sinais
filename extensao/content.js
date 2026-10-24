@@ -1124,9 +1124,9 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
       try {
         // escolha automática: ao ligar, a cada hora, ou quando o ativo atual não tem combinação aprovada
         const semComb = ativo && !ativo.juntando && rankingAtivo && !combinacoes().filter((c) => !c.sempre).length;
-        // parado também procura: sem combinação aprovada testa os ativos de novo a cada 5 min; sem entrar há 20 min, a cada 20 min
-        const parado = Date.now() - Math.max(ultimaEntrada, ultimaEscolha) > 20 * MINUTO;
-        const intervalo = semComb ? 5 * MINUTO : parado ? 20 * MINUTO : 60 * MINUTO;
+        // parado também procura: sem combinação aprovada testa os ativos de novo a cada 5 min; sem entrar há 10 min, a cada 10 min
+        const parado = Date.now() - Math.max(ultimaEntrada, ultimaEscolha) > 10 * MINUTO;
+        const intervalo = semComb ? 5 * MINUTO : parado ? 10 * MINUTO : 60 * MINUTO;
         proximaBusca = ultimaEscolha + intervalo;
         if (cfg.autoAtivo && cfg.ligado && !trocando && Date.now() - ultimaEscolha > intervalo) await escolherAtivo();
         await ciclo();
