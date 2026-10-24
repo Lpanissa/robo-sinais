@@ -196,6 +196,71 @@ const ESTRATEGIAS = [
       return {};
     },
   },
+  // ---------- padrões de vela ----------
+  {
+    id: 'martelo', nome: 'Martelo / Estrela cadente', desc: 'Martelo depois de queda compra; estrela cadente depois de alta vende', imediato: true,
+    fn(I, rigor, v) {
+      const k = I.last, c = Math.abs(k.c - k.o) || 1e-9, r = k.h - k.l || 1e-9;
+      const sup = k.h - Math.max(k.o, k.c), inf = Math.min(k.o, k.c) - k.l;
+      const antes = v.slice(-6, -1), caiu = antes[0].c > antes[antes.length - 1].c, subiu = antes[0].c < antes[antes.length - 1].c;
+      if (caiu && inf >= 2 * c && sup <= 0.3 * r) return { dir: 'up', ready: true };
+      if (subiu && sup >= 2 * c && inf <= 0.3 * r) return { dir: 'down', ready: true };
+      return {};
+    },
+  },
+  {
+    id: 'engolfo', nome: 'Engolfo', desc: 'Vela que engole a anterior na direção contrária', imediato: true,
+    fn(I, rigor, v) {
+      const a = v[v.length - 2], b = I.last;
+      if (a.c < a.o && b.c > b.o && b.c > a.o && b.o < a.c) return { dir: 'up', ready: true };
+      if (a.c > a.o && b.c < b.o && b.c < a.o && b.o > a.c) return { dir: 'down', ready: true };
+      return {};
+    },
+  },
+  {
+    id: 'doji', nome: 'Doji no extremo', desc: 'Vela de corpo mínimo com RSI esticado: indecisão, aposta na volta', imediato: true,
+    fn(I) {
+      const k = I.last, r = k.h - k.l || 1e-9;
+      if (Math.abs(k.c - k.o) > 0.1 * r) return {};
+      if (I.r < 35) return { dir: 'up', ready: true };
+      if (I.r > 65) return { dir: 'down', ready: true };
+      return {};
+    },
+  },
+  {
+    id: 'harami', nome: 'Harami', desc: 'Vela pequena dentro do corpo da anterior grande: perda de força', imediato: true,
+    fn(I, rigor, v) {
+      const a = v[v.length - 2], b = I.last;
+      const ca = Math.abs(a.c - a.o), cb = Math.abs(b.c - b.o);
+      if (ca < I.atr * 0.8 || cb > ca * 0.5) return {};
+      const dentro = Math.max(b.o, b.c) < Math.max(a.o, a.c) && Math.min(b.o, b.c) > Math.min(a.o, a.c);
+      if (!dentro) return {};
+      return a.c < a.o ? { dir: 'up', ready: true } : { dir: 'down', ready: true };
+    },
+  },
+  {
+    id: 'estrela', nome: 'Estrela da manhã / da noite', desc: 'Vela forte, vela pequena e vela forte para o outro lado', imediato: true,
+    fn(I, rigor, v) {
+      const [a, b, c] = v.slice(-3);
+      const ca = Math.abs(a.c - a.o), cb = Math.abs(b.c - b.o), cc = Math.abs(c.c - c.o);
+      if (ca < I.atr * 0.7 || cb > ca * 0.4 || cc < ca * 0.5) return {};
+      const meioA = (a.o + a.c) / 2;
+      if (a.c < a.o && c.c > c.o && c.c > meioA) return { dir: 'up', ready: true };
+      if (a.c > a.o && c.c < c.o && c.c < meioA) return { dir: 'down', ready: true };
+      return {};
+    },
+  },
+  {
+    id: 'tres', nome: 'Três soldados / Três corvos', desc: '3 velas fortes seguidas na mesma direção: segue o movimento', imediato: true,
+    fn(I, rigor, v) {
+      const u = v.slice(-3);
+      const fortes = u.every((k) => Math.abs(k.c - k.o) > 0.6 * (k.h - k.l || 1e-9));
+      if (!fortes) return {};
+      if (u.every((k, i) => k.c > k.o && (i === 0 || k.c > u[i - 1].c))) return { dir: 'up', ready: true };
+      if (u.every((k, i) => k.c < k.o && (i === 0 || k.c < u[i - 1].c))) return { dir: 'down', ready: true };
+      return {};
+    },
+  },
 ];
 
 const MIN = 60000;
