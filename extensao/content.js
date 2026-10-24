@@ -822,6 +822,7 @@
       versao: (() => { try { return chrome.runtime.getManifest().version; } catch (e) { return ''; } })(), ligado: !!cfg.ligado, ativo: ativo ? ativo.titulo : '', status: statusTxt,
       conta: /demo/i.test(ct) ? 'demo' : 'real', hoje: Math.round(rd * 100) / 100, parado: contaGlobal.parado || '',
       abertas: sessao.ops.filter((x) => x.situacao === 'em andamento').length, fechar: fecharInfo || '',
+      saldo: (q('[data-test="account-balance-value"]')?.innerText || '').trim(),
     } });
   }
   setTimeout(() => { sincronizarApp(); enviarEstado(); }, 5000);

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Robô de Sinais - Piloto",
-  "version": "1.21.0",
+  "version": "1.21.1",
   "description": "Opera os sinais do Robô de Sinais na Olymp Trade e manda o histórico para o app.",
   "permissions": [
     "storage"
