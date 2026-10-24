@@ -448,7 +448,7 @@ function placar(S, cfg, zero) {
   const RETORNO = 0.85; // retorno médio da Olymp no acerto, usado nas contas do teste
   const EMPATE = (100 / (1 + RETORNO));
   const PADRAO = {
-    ligado: false, autoAtivo: false, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
+    ligado: false, autoAtivo: false, sempreLeitura: 1, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
     maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0,
   };
@@ -683,6 +683,12 @@ function placar(S, cfg, zero) {
       if (vistos.has(k)) continue;
       vistos.add(k);
       lista.push(r);
+    }
+    // Leitura (padrão de reversão no suporte/resistência, velas de 1 min, 1 min): sempre ligada, mesmo fora do teste
+    if (cfg.sempreLeitura && !vistos.has('1|leitura')) {
+      const t = (rankingAtivo.todas || []).find((r) => r.tf === 1 && r.est === 'leitura' && r.exp === 1);
+      const vazio = { n: 0, ac: 0, lucro: 0 };
+      lista.push({ tf: 1, est: 'leitura', nome: 'Leitura: padrão de reversão no nível', exp: 1, a: t ? t.a : vazio, b: t ? t.b : vazio, total: t ? t.total : vazio, sempre: true });
     }
     return lista;
   }
@@ -1071,7 +1077,7 @@ function placar(S, cfg, zero) {
     let comb;
     if (!c) comb = `<div class="rs-box">Nenhuma combinação deste ativo passou de ${cfg.minAcerto}% nas duas partes do teste. O robô não vai operar aqui.</div>`;
     else if (c.manual) comb = `<div class="rs-box">Manual: ${esc(descr(c))}</div>`;
-    else comb = `<div class="rs-box"><b>${lista.length === 1 ? 'Operando 1 combinação' : `Operando ${lista.length} combinações`}</b> (empate em ${EMPATE.toFixed(0)}%)<br>${lista.map((x) => `${esc(descr(x))}<br><span class="rs-mono" style="color:#8b97a8">teste ${pct(x.a.ac)} (${x.a.n}) · conferência ${pct(x.b.ac)} (${x.b.n})</span>`).join('<br>')}</div>`;
+    else comb = `<div class="rs-box"><b>${lista.length === 1 ? 'Operando 1 combinação' : `Operando ${lista.length} combinações`}</b> (empate em ${EMPATE.toFixed(0)}%)<br>${lista.map((x) => `${esc(descr(x))}${x.sempre ? ' <b style="color:#e5a93a">(sempre ligada)</b>' : ''}<br><span class="rs-mono" style="color:#8b97a8">teste ${pct(x.a.ac)} (${x.a.n}) · conferência ${pct(x.b.ac)} (${x.b.n})</span>`).join('<br>')}</div>`;
 
     const geral = rankingGeral ? `<div class="rs-box"><b>Ranking geral</b> (melhor combinação de cada ativo)<br>${rankingGeral.map((r) => `${esc(r.titulo)}: ${r.erro ? 'erro' : r.melhor ? `${esc(descr(r.melhor))} · ${pct(r.melhor.total.ac)} em ${r.melhor.total.n}` : 'nenhuma aprovada'}`).join('<br>')}</div>` : '';
 
@@ -1091,6 +1097,7 @@ ${geral}`;
     const form = `
 <div class="rs-l" style="margin-top:4px">Ajustes</div>
 <label>Ativo<select data-k="autoAtivo"><option value="0"${!cfg.autoAtivo ? ' selected' : ''}>O que estiver aberto na tela</option><option value="1"${cfg.autoAtivo ? ' selected' : ''}>O robô escolhe o melhor sozinho</option></select></label>
+<label>Leitura de vela + suporte/resistência (1 min)<select data-k="sempreLeitura"><option value="1"${cfg.sempreLeitura ? ' selected' : ''}>Sempre operar</option><option value="0"${!cfg.sempreLeitura ? ' selected' : ''}>Só se passar no teste</option></select></label>
 <label>Como escolher<select data-k="modo"><option value="todas"${cfg.modo === 'todas' ? ' selected' : ''}>Todas as combinações aprovadas (automático)</option><option value="melhor"${cfg.modo === 'melhor' ? ' selected' : ''}>Só a melhor combinação (automático)</option><option value="manual"${cfg.modo === 'manual' ? ' selected' : ''}>Eu escolho</option></select></label>
 ${cfg.modo === 'manual' ? `<div class="rs-row">
 <label>Estratégia<select data-k="estrategia">${ESTRATEGIAS.map((e) => `<option value="${e.id}"${cfg.estrategia === e.id ? ' selected' : ''}>${e.nome}</option>`).join('')}</select></label>
@@ -1126,7 +1133,7 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
       rodando = true;
       try {
         // escolha automática: ao ligar, a cada hora, ou quando o ativo atual não tem combinação aprovada
-        const semComb = ativo && !ativo.juntando && rankingAtivo && !combinacoes().length;
+        const semComb = ativo && !ativo.juntando && rankingAtivo && !combinacoes().filter((c) => !c.sempre).length;
         if (cfg.autoAtivo && cfg.ligado && !trocando && (Date.now() - ultimaEscolha > 60 * MINUTO || (semComb && Date.now() - ultimaEscolha > 10 * MINUTO))) await escolherAtivo();
         await ciclo();
       } finally { rodando = false; }
