@@ -84,21 +84,28 @@
 
   // ---------- teste das combinações (velas reais) ----------
   // sinais de uma estratégia ao longo do histórico, com o mesmo alerta + confirmação do robô
-  function sinaisDoHistorico(v, est, rigor) {
-    let pre = null;
-    const out = [];
+  // sinais de todas as estratégias ao longo do histórico, com o mesmo alerta + confirmação do robô
+  // calcula os indicadores uma vez por vela e solta a página de tempos em tempos para não travar a Olymp
+  async function sinaisDoHistorico(v, rigor) {
+    const pre = {}, out = {};
+    for (const e of ESTRATEGIAS) { pre[e.id] = null; out[e.id] = []; }
     for (let i = 40; i < v.length; i++) {
       const w = v.slice(Math.max(0, i - 220), i + 1);
-      const R = est.fn(indicadores(w), rigor, w) || {};
+      const I = indicadores(w);
       const k = v[i];
-      let entrou = false;
-      if (pre) {
-        const ok = (R.ready && R.dir === pre.dir) || ((pre.ready || (R.near && R.dir === pre.dir)) && (pre.dir === 'up' ? k.c > k.o : k.c < k.o));
-        if (ok) { out.push({ i, dir: pre.dir }); entrou = true; }
-        pre = null;
+      for (const est of ESTRATEGIAS) {
+        const R = est.fn(I, rigor, w) || {};
+        let entrou = false;
+        const p = pre[est.id];
+        if (p) {
+          const ok = (R.ready && R.dir === p.dir) || ((p.ready || (R.near && R.dir === p.dir)) && (p.dir === 'up' ? k.c > k.o : k.c < k.o));
+          if (ok) { out[est.id].push({ i, dir: p.dir }); entrou = true; }
+          pre[est.id] = null;
+        }
+        if (est.imediato && !entrou && R.ready && R.dir) { out[est.id].push({ i, dir: R.dir }); entrou = true; }
+        if (!entrou && R.dir && (R.ready || R.near)) pre[est.id] = { dir: R.dir, ready: !!R.ready };
       }
-      if (est.imediato && !entrou && R.ready && R.dir) { out.push({ i, dir: R.dir }); entrou = true; }
-      if (!entrou && R.dir && (R.ready || R.near)) pre = { dir: R.dir, ready: !!R.ready };
+      if (i % 150 === 0) await espera(0);
     }
     return out;
   }
@@ -114,14 +121,15 @@
     return { n: w + l, ac: w + l ? (100 * w) / (w + l) : 0, lucro: w * RETORNO - l };
   }
   // escolhe numa parte do histórico (60%) e confere na parte seguinte (40%), para não escolher por sorte
-  function rankear(porTf) {
+  async function rankear(porTf) {
     const linhas = [];
     for (const tf of Object.keys(porTf)) {
       const v = porTf[tf];
       if (!v || v.length < 300) continue;
       const corte = Math.floor(v.length * 0.6);
+      const todos = await sinaisDoHistorico(v, cfg.rigor);
       for (const est of ESTRATEGIAS) {
-        const sinais = sinaisDoHistorico(v, est, cfg.rigor);
+        const sinais = todos[est.id];
         const exps = +tf === 1 ? [1, 2, 3, 5] : [1, 2, 3];
         for (const x of exps) {
           const a = medir(v, sinais, x, 0, corte);
@@ -256,7 +264,7 @@
         ativo.juntando = true;
         return;
       }
-      rankingAtivo = rankear(porTf);
+      rankingAtivo = await rankear(porTf);
       rankingEm = Date.now();
       escolha = rankingAtivo.melhor;
       const lista = combinacoes();
@@ -326,7 +334,7 @@
         const v1 = await pedirVelas(alvo, 1, 5000);
         // mercado fechado (forex no fim de semana): a última vela é antiga
         if (!v1.length || Date.now() - v1[v1.length - 1].t > 15 * MINUTO) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: 'mercado fechado' }); continue; }
-        const r = rankear({ 1: v1, 5: await pedirVelas(alvo, 5, 5000) });
+        const r = await rankear({ 1: v1, 5: await pedirVelas(alvo, 5, 5000) });
         rankingGeral.push({ titulo: alvo.titulo, alvo, melhor: r.melhor });
       } catch (e) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: e.message }); }
     }
@@ -339,7 +347,7 @@
       if (!Array.isArray(v1) || v1.length < MIN_VELAS) continue;
       const alvo = { titulo: nome, fonte: 'pagina', simbolo: nome, busca: nome };
       colecao[nome] = colecao[nome] || v1;
-      const r = rankear({ 1: v1, 5: agregar(v1, 5) });
+      const r = await rankear({ 1: v1, 5: agregar(v1, 5) });
       rankingGeral.push({ titulo: nome, alvo, melhor: r.melhor });
     }
     rankingGeral.sort((x, y) => (y.melhor ? y.melhor.total.lucro : -1e9) - (x.melhor ? x.melhor.total.lucro : -1e9));
