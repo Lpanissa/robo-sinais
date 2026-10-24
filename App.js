@@ -209,7 +209,7 @@ export default function App() {
       <ScrollView contentContainerStyle={s.scroll}>
         <View style={s.wrap}>
           <View style={s.topo}>
-            <View style={s.marca}><Text style={s.h1}>PanissAsset</Text><Text style={s.h1sub}>Olymp Trade</Text></View>
+            <View style={s.marca}><Text style={s.h1}>PanissAsset</Text><Text style={s.h1sub}>OlympTrade</Text></View>
             <View style={s.linhaCentro}>
               {Platform.OS === 'web' && (
                 <Pressable onPress={ligarSom} style={[s.botao, som && { borderColor: C.destaque }]}>
@@ -367,7 +367,7 @@ const s = StyleSheet.create({
   // no Android a barra de cima (hora, bateria) fica por cima do app: desce o conteúdo a altura dela
   scroll: { paddingHorizontal: 16, paddingTop: 16 + (Platform.OS === 'android' ? (BarraRN.currentHeight || 24) : 0), paddingBottom: 40 },
   marca: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-  h1sub: { color: C.suave, fontSize: 13, fontWeight: '600' },
+  h1sub: { color: C.alta, fontSize: 14, fontWeight: '700' },
   wrap: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: 12 },
   topo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   h1: { color: C.texto, fontSize: 24, fontWeight: '700' },
