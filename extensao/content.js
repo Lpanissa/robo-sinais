@@ -10,6 +10,7 @@
     ligado: false, autoAtivo: false, sempreLeitura: 1, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
     maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0,
+    fecharAlvo: 0, fecharModo: 'percent', // fechar antes no lucro (0 = nunca); sem stop de perda
   };
 
   // ---------- ativos ----------
@@ -508,8 +509,63 @@
     desenhar();
   }
 
+  // ---------- fechar antes no lucro (só lucro; perda vai até o fim) ----------
+  // lê os botões "Fechar antes +US$x" da lista de negociações da Olymp
+  function lerValor(txt) {
+    const t = txt.replace(/fechar antes|close early|fechar|close/gi, '').replace(/\s+/g, '');
+    const m = t.match(/([+\-−–]?)(?:US\$|R\$|\$|€)?([+\-−–]?)(\d[\d.,]*)/);
+    if (!m) return null;
+    let n = m[3];
+    if (n.includes(',') && n.includes('.')) n = n.lastIndexOf(',') > n.lastIndexOf('.') ? n.replace(/\./g, '').replace(',', '.') : n.replace(/,/g, '');
+    else n = n.replace(',', '.');
+    const v = parseFloat(n);
+    if (!isFinite(v)) return null;
+    return /[\-−–]/.test(m[1] + m[2]) ? -v : v;
+  }
+  let fechando = false;
+  async function vigiarFechamento() {
+    if (fechando || !cfg.ligado || !(cfg.fecharAlvo > 0)) return;
+    const minhas = sessao.ops.filter((r) => r.situacao === 'em andamento' && r.fechouAntes == null);
+    if (!minhas.length) return;
+    const botoes = [...document.querySelectorAll('button, [role="button"]')].filter((b) => /fechar antes|close early/i.test(b.innerText || '') && b.offsetParent && !b.disabled);
+    for (const b of botoes) {
+      let v = lerValor(b.innerText || '');
+      if (v == null && b.parentElement) v = lerValor((b.parentElement.innerText || '').split(/fechar antes|close early/i).pop());
+      if (v == null || v <= 0) continue;
+      const alvo = cfg.fecharModo === 'valor' ? cfg.fecharAlvo : valorDaEntrada() * retornoAtivo() * cfg.fecharAlvo / 100;
+      if (v + 1e-9 < alvo) continue;
+      fechando = true;
+      try {
+        b.click();
+        await espera(700);
+        // se a Olymp pedir confirmação, confirma
+        const conf = [...document.querySelectorAll('[role="dialog"] button, [class*="modal"] button, [class*="Modal"] button, [class*="popup"] button')]
+          .find((x) => x !== b && x.offsetParent && /^(fechar|confirmar|sim|ok|close|confirm|yes)/i.test((x.innerText || '').trim()));
+        if (conf) { conf.click(); await espera(500); }
+        const reg = minhas.pop();
+        if (reg) { liberar(reg.id); reg.fechouAntes = Math.round(v * 100) / 100; reg.situacao = `fechou antes (+${v.toFixed(2)})`; }
+        status(`Fechou antes no lucro: +${v.toFixed(2)}`, 'ok');
+      } finally { fechando = false; }
+      if (!minhas.length) break;
+    }
+  }
+  setInterval(() => { vigiarFechamento().catch(() => {}); }, 700);
+
   // resultado pela cotação (não pelo saldo, que mistura as operações das outras janelas)
   async function conferir(reg) {
+    if (reg.fechouAntes != null) {
+      reg.resultado = reg.fechouAntes;
+      reg.situacao = 'fechou antes';
+      sessao.resultado += reg.resultado;
+      await liberar(reg.id);
+      const cg = await lerConta();
+      cg.resultado = (cg.resultado || 0) + reg.resultado;
+      cg.perdasSeguidas = 0;
+      cg.ganhos = (cg.ganhos || 0) + 1;
+      await gravarConta(cg);
+      desenhar();
+      return;
+    }
     const s = reg.sinal;
     let res = s.res;
     if (res !== 'acerto' && res !== 'erro') {
@@ -591,7 +647,7 @@
     const k = e.target.dataset.k;
     if (!k) return;
     const v = e.target.value;
-    cfg[k] = ['estrategia', 'chave', 'modoValor', 'modo'].includes(k) ? v.trim() : parseFloat(String(v).replace(',', '.')) || 0;
+    cfg[k] = ['estrategia', 'chave', 'modoValor', 'modo', 'fecharModo'].includes(k) ? v.trim() : parseFloat(String(v).replace(',', '.')) || 0;
     salvar();
     desenhar(true);
   }
@@ -668,6 +724,7 @@ ${cfg.modo === 'manual' ? `<div class="rs-row">
 ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="percent" value="${cfg.percent}" inputmode="decimal"></label>` : `<label>Valor por operação<input data-k="valor" value="${cfg.valor}" inputmode="decimal"></label>`}
 <label>Parar após perdas seguidas (0 = nunca)<input data-k="maxPerdasSeguidas" value="${cfg.maxPerdasSeguidas}" inputmode="numeric"></label>
 <label>Parar se perder na sessão (0 = nunca)<input data-k="limitePerda" value="${cfg.limitePerda}" inputmode="decimal"></label>
+<div class="rs-row"><label>Fechar antes no lucro<select data-k="fecharModo"><option value="percent"${cfg.fecharModo !== 'valor' ? ' selected' : ''}>% do lucro cheio</option><option value="valor"${cfg.fecharModo === 'valor' ? ' selected' : ''}>Valor (US$)</option></select></label><label>Alvo (0 = nunca)<input data-k="fecharAlvo" value="${cfg.fecharAlvo}" inputmode="decimal"></label></div>
 <label>Máx. operações abertas na conta (0 = sem limite)<input data-k="maxAbertas" value="${cfg.maxAbertas}" inputmode="numeric"></label>
 <label>Acerto mínimo no teste (%)<input data-k="minAcerto" value="${cfg.minAcerto}" inputmode="numeric"></label>
 <label>Sinais mínimos no teste<input data-k="minOps" value="${cfg.minOps}" inputmode="numeric"></label>
