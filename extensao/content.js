@@ -874,7 +874,12 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
     if (refazerForm || !corpo.querySelector('#rs-form').innerHTML) corpo.querySelector('#rs-form').innerHTML = form;
   }
 
-  chrome.storage.local.get('cfg', (r) => { cfg = { ...PADRAO, ...(r.cfg || {}) }; montarPainel(); });
+  // ao abrir a página o robô já vem ligado (menos quando um limite de perda parou a conta)
+  chrome.storage.local.get(['cfg', 'conta'], (r) => {
+    cfg = { ...PADRAO, ...(r.cfg || {}) };
+    if (!cfg.ligado && !(r.conta && r.conta.parado)) { cfg.ligado = true; salvar(); }
+    montarPainel();
+  });
 
   let rodando = false;
   repetir(async () => {
