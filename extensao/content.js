@@ -374,7 +374,7 @@
 
   // ---------- escolher o ativo sozinho ----------
   // testa todos os ativos, pega o melhor que nenhuma outra janela esteja usando e troca o ativo na Olymp
-  let ultimaEscolha = 0;
+  let ultimaEscolha = 0, ultimaEntrada = 0, proximaBusca = 0;
   let trocando = false;
   const abertasNestaJanela = () => Object.values(contaGlobal.abertas || {}).filter((a) => a.aba === ABA && a.ate > Date.now()).length;
   async function marcarAtivo(nome) {
@@ -507,6 +507,7 @@
       travadas = 0;
       botao.click();
       reg.situacao = 'em andamento';
+      ultimaEntrada = Date.now();
       enviarOrdem(reg);
       reg.saldoAntes = antes;
       setTimeout(() => conferir(reg), c.exp * MINUTO + 8000);
@@ -894,6 +895,7 @@
 
     const topo = `
 <div class="rs-st"><span class="rs-dot" style="background:${cor}"></span><span>${esc(statusTxt)}</span></div>
+${cfg.autoAtivo && cfg.ligado && proximaBusca > Date.now() && !trocando ? `<div class="rs-st" style="color:#8b97a8">Procurando oportunidades em todos os ativos · próximo teste às ${hora(proximaBusca).slice(0, 5)}</div>` : ''}
 ${(cfg.fecharAlvo > 0 || cfg.fecharModo === 'auto') && fecharInfo ? `<div class="rs-st" style="color:#8b97a8">Fechar antes: ${esc(fecharInfo)}</div>` : ""}
 ${real ? `<div class="rs-real">CONTA REAL: as operações usam dinheiro de verdade</div>` : `<div class="rs-l">Conta: ${esc(ct || '?')}</div>`}
 ${comb}
@@ -957,7 +959,11 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
       try {
         // escolha automática: ao ligar, a cada hora, ou quando o ativo atual não tem combinação aprovada
         const semComb = ativo && !ativo.juntando && rankingAtivo && !combinacoes().filter((c) => !c.sempre).length;
-        if (cfg.autoAtivo && cfg.ligado && !trocando && (Date.now() - ultimaEscolha > 60 * MINUTO || (semComb && Date.now() - ultimaEscolha > 10 * MINUTO))) await escolherAtivo();
+        // parado também procura: sem combinação aprovada testa os ativos de novo a cada 5 min; sem entrar há 20 min, a cada 20 min
+        const parado = Date.now() - Math.max(ultimaEntrada, ultimaEscolha) > 20 * MINUTO;
+        const intervalo = semComb ? 5 * MINUTO : parado ? 20 * MINUTO : 60 * MINUTO;
+        proximaBusca = ultimaEscolha + intervalo;
+        if (cfg.autoAtivo && cfg.ligado && !trocando && Date.now() - ultimaEscolha > intervalo) await escolherAtivo();
         await ciclo();
       } finally { rodando = false; }
     }
