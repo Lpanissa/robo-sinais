@@ -339,6 +339,49 @@ const ESTRATEGIAS = [
       return {};
     },
   },
+  {
+    id: 'leitura2', nome: 'Leitura ampla: reversão em qualquer nível', desc: 'Preço num suporte/resistência que já segurou antes + vela de reversão (pavio, martelo, engolfo, doji, harami, estrela)', imediato: true,
+    fn(I, rigor, v) {
+      if (v.length < 130) return {};
+      const k = I.last, a = v[v.length - 2], b3 = v[v.length - 3];
+      const tol = I.atr * 0.35;
+      // níveis: topos e fundos de 2 horas (sem as 5 velas mais recentes) que foram tocados pelo menos 2 vezes
+      const w = v.slice(-125, -5);
+      // níveis: pontos onde o preço virou nas últimas 2 horas (topos e fundos locais), sem as 5 velas mais recentes.
+      // um fundo antigo também vale como resistência quando o preço volta nele por baixo (suporte que virou resistência)
+      const piv = [];
+      for (let i = 3; i < w.length - 3; i++) {
+        const x = w[i];
+        if ([1, 2, 3].every((d) => x.h >= w[i - d].h && x.h >= w[i + d].h)) piv.push(x.h);
+        if ([1, 2, 3].every((d) => x.l <= w[i - d].l && x.l <= w[i + d].l)) piv.push(x.l);
+      }
+      const forca = (nivel) => piv.filter((p) => Math.abs(p - nivel) <= tol).length;
+      // resistência: nível acima do fechamento que a vela encostou; suporte: nível abaixo que a vela encostou
+      const resist = piv.filter((p) => k.h >= p - tol && k.c < p && forca(p) >= 2);
+      const suporte = piv.filter((p) => k.l <= p + tol && k.c > p && forca(p) >= 2);
+      const naResist = resist.length > 0;
+      const noSuporte = suporte.length > 0;
+      if (!naResist && !noSuporte) return {};
+      const corpo = Math.abs(k.c - k.o) || 1e-9, rng = k.h - k.l || 1e-9;
+      const sup = k.h - Math.max(k.o, k.c), inf = Math.min(k.o, k.c) - k.l;
+      const doji = corpo <= 0.1 * rng;
+      const ca = Math.abs(a.c - a.o);
+      // padrões de baixa (para a resistência)
+      const baixa = (sup >= 1.5 * corpo && sup >= 0.45 * rng) || doji
+        || (a.c > a.o && k.c < k.o && k.c < a.o && k.o >= a.c)
+        || (a.c > a.o && ca > I.atr * 0.6 && Math.max(k.o, k.c) <= a.c && Math.min(k.o, k.c) >= a.o && corpo < ca * 0.5)
+        || (b3.c > b3.o && Math.abs(a.c - a.o) < Math.abs(b3.c - b3.o) * 0.4 && k.c < k.o && k.c < (b3.o + b3.c) / 2);
+      const alta = (inf >= 1.5 * corpo && inf >= 0.45 * rng) || doji
+        || (a.c < a.o && k.c > k.o && k.c > a.o && k.o <= a.c)
+        || (a.c < a.o && ca > I.atr * 0.6 && Math.max(k.o, k.c) <= a.o && Math.min(k.o, k.c) >= a.c && corpo < ca * 0.5)
+        || (b3.c < b3.o && Math.abs(a.c - a.o) < Math.abs(b3.c - b3.o) * 0.4 && k.c > k.o && k.c > (b3.o + b3.c) / 2);
+      if (naResist && baixa) return { dir: 'down', ready: true };
+      if (noSuporte && alta) return { dir: 'up', ready: true };
+      if (naResist) return { dir: 'down', near: true };
+      if (noSuporte) return { dir: 'up', near: true };
+      return {};
+    },
+  },
 ];
 
 const MIN = 60000;
