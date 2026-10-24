@@ -31,40 +31,35 @@
     fecharAlvo: 0, fecharModo: 'auto', fecharManuais: 0, // fechar antes no lucro (0 = nunca); sem stop de perda
   };
 
-  // ---------- ativos ----------
-  const FOREX = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'EUR/JPY', 'USD/CAD', 'USD/CHF', 'NZD/USD', 'EUR/GBP', 'GBP/JPY', 'AUD/JPY', 'EUR/CHF'];
-  // outras criptos da Olymp (cotação real da Binance, abertas 24 h, inclusive no fim de semana)
-  const CRIPTOS = [
-    { titulo: 'Litecoin', simbolo: 'LTCUSDT', re: /LITECOIN|LTC/ }, { titulo: 'Ripple', simbolo: 'XRPUSDT', re: /RIPPLE|XRP/ },
-    { titulo: 'Solana', simbolo: 'SOLUSDT', re: /SOLANA|SOL\b/ }, { titulo: 'Cardano', simbolo: 'ADAUSDT', re: /CARDANO|ADA\b/ },
-    { titulo: 'Dogecoin', simbolo: 'DOGEUSDT', re: /DOGE/ }, { titulo: 'BNB', simbolo: 'BNBUSDT', re: /BNB|BINANCE COIN/ },
-    { titulo: 'Polkadot', simbolo: 'DOTUSDT', re: /POLKADOT|DOT\b/ }, { titulo: 'Chainlink', simbolo: 'LINKUSDT', re: /CHAINLINK|LINK\b/ },
-    { titulo: 'Avalanche', simbolo: 'AVAXUSDT', re: /AVALANCHE|AVAX/ }, { titulo: 'Tron', simbolo: 'TRXUSDT', re: /TRON|TRX/ },
-  ];
-  const RANKING_ATIVOS = [
-    { titulo: 'EUR/USD', fonte: 'forex', simbolo: 'EUR/USD' }, { titulo: 'GBP/USD', fonte: 'forex', simbolo: 'GBP/USD' },
-    { titulo: 'USD/JPY', fonte: 'forex', simbolo: 'USD/JPY' }, { titulo: 'AUD/USD', fonte: 'forex', simbolo: 'AUD/USD' },
-    { titulo: 'EUR/JPY', fonte: 'forex', simbolo: 'EUR/JPY' }, { titulo: 'Ouro', fonte: 'forex', simbolo: 'XAU/USD', busca: 'Gold' },
-    { titulo: 'Bitcoin', fonte: 'cripto', simbolo: 'BTCUSDT' }, { titulo: 'Ethereum', fonte: 'cripto', simbolo: 'ETHUSDT' },
-    ...CRIPTOS.map((c) => ({ titulo: c.titulo, fonte: 'cripto', simbolo: c.simbolo })),
-  ];
+  // ---------- ativos (todos da própria Olymp) ----------
+  // a lista vem do olymp-escuta.js, que lê a mesma lista de ativos que a página da Olymp recebe
+  let ativosOlymp = []; // [{ id, titulo, grupo, fechado }]
+  window.addEventListener('message', (ev) => { if (ev.source === window && ev.data && ev.data.__rsAtivos) ativosOlymp = ev.data.lista || []; });
+  const pedirAtivos = () => window.postMessage({ __rsPedirAtivos: true }, '*');
+  setTimeout(pedirAtivos, 3000);
+  repetir(pedirAtivos, 60000);
+  // grupos que entram na escolha automática (na ordem de preferência)
+  const GRUPOS_RANKING = ['crypto', 'otc', 'currency', 'commodity', 'index', 'stock'];
+  const MAX_RANKING = 60;
+  function rankingAtivos() {
+    return ativosOlymp
+      .filter((a) => !a.fechado && GRUPOS_RANKING.includes(a.grupo))
+      .sort((x, y) => GRUPOS_RANKING.indexOf(x.grupo) - GRUPOS_RANKING.indexOf(y.grupo))
+      .slice(0, MAX_RANKING)
+      .map((a) => ({ titulo: a.titulo, fonte: 'olymp', simbolo: a.id, busca: a.titulo }));
+  }
   function detectarAtivo() {
     const titulo = (q('[data-test="assets-tabs-tab-title"]')?.innerText || '').trim();
     const botao = q('[data-test^="asset-select-button-"][data-test$="/ftt"]');
     const id = botao ? botao.getAttribute('data-test').replace('asset-select-button-', '').replace('/ftt', '') : '';
-    const t = titulo.toUpperCase();
     const base = { titulo: titulo || id || '?', id };
-    // OTC: o preço é da própria Olymp; o robô monta as velas lendo o preço da tela
-    if (/OTC/.test(t) || /OTC/.test(id)) return { ...base, fonte: 'pagina', simbolo: base.titulo };
-    for (const par of FOREX) if (t === par || id === par.replace('/', '')) return { ...base, fonte: 'forex', simbolo: par };
-    if (/BITCOIN|BTC/.test(t) || /^BTC/.test(id)) return { ...base, fonte: 'cripto', simbolo: 'BTCUSDT' };
-    if (/ETHEREUM|ETH/.test(t) || /^ETH/.test(id)) return { ...base, fonte: 'cripto', simbolo: 'ETHUSDT' };
-    for (const c of CRIPTOS) if (c.re.test(t) || c.re.test(id.toUpperCase())) return { ...base, fonte: 'cripto', simbolo: c.simbolo };
-    if (/GOLD|OURO|XAU/.test(t) || /^XAU/.test(id)) return { ...base, fonte: 'forex', simbolo: 'XAU/USD' };
-    if (!titulo) return { ...base, erro: 'Carregando o ativo da Olymp...' };
-    // qualquer outro ativo: velas montadas com o preço da tela
-    return { ...base, fonte: 'pagina', simbolo: base.titulo };
+    if (!titulo && !id) return { ...base, erro: 'Carregando o ativo da Olymp...' };
+    let simbolo = id;
+    if (!simbolo) { const a = ativosOlymp.find((x) => x.titulo === titulo); simbolo = a ? a.id : ''; }
+    if (!simbolo) return { ...base, erro: 'Esperando a lista de ativos da Olymp...' };
+    return { ...base, fonte: 'olymp', simbolo };
   }
+
 
   // ---------- página da corretora ----------
   const q = (s) => document.querySelector(s);
@@ -247,19 +242,40 @@
     return out;
   }
 
-  async function pedirVelas(alvo, tf, n) {
-    if (alvo.fonte === 'pagina') {
-      const v1 = await carregarColecao(alvo.titulo);
-      return agregar(v1, tf).slice(-n);
-    }
+  // velas direto da Olymp: o olymp-escuta.js pede à Olymp, pela conexão dela, o mesmo histórico do gráfico
+  let seqPedido = 0;
+  const esperando = {};
+  window.addEventListener('message', (ev) => {
+    const d = ev.data;
+    if (ev.source !== window || !d || !d.__rsVelas) return;
+    const f = esperando[d.id];
+    if (f) { delete esperando[d.id]; f(d); }
+  });
+  function pedirLote(pair, size, to, limit) {
     return new Promise((ok, falha) => {
-      chrome.runtime.sendMessage({ tipo: 'velas', fonte: alvo.fonte, simbolo: alvo.simbolo, chave: cfg.chave, n, tf }, (r) => {
-        if (chrome.runtime.lastError) return falha(new Error(chrome.runtime.lastError.message));
-        if (!r || !r.ok) return falha(new Error(r ? r.erro : 'sem resposta'));
-        ok(r.velas);
-      });
+      const id = 'v' + (++seqPedido);
+      esperando[id] = (d) => (d.ok ? ok(d.candles || []) : falha(new Error(d.erro || 'a Olymp não mandou as velas')));
+      window.postMessage({ __rsPedirVelas: { id, pair, size, to, limit } }, '*');
     });
   }
+  async function pedirVelas(alvo, tf, n) {
+    const size = tf * 60;
+    const quantas = Math.min(n, 3000);
+    let to = Math.floor(Date.now() / 1000);
+    let out = [];
+    while (out.length < quantas) {
+      const lim = Math.min(600, quantas - out.length);
+      const c = await pedirLote(alvo.simbolo, size, to, lim);
+      const v = c.map((k) => ({ t: k.t * 1000, o: +k.open, h: +k.high, l: +k.low, c: +k.close })).sort((x, y) => x.t - y.t);
+      if (!v.length) break;
+      const primeiro = out.length ? out[0].t : Infinity;
+      out = v.filter((k) => k.t < primeiro).concat(out);
+      if (v.length < lim) break;
+      to = Math.floor(v[0].t / 1000) - 1;
+    }
+    return out;
+  }
+
 
   // combinações que o robô vai operar agora
   // todas: cada estratégia/vela aprovada no teste (a melhor expiração de cada); melhor: só a primeira; manual: a escolhida
@@ -297,10 +313,9 @@
     rankingAtivo = null;
     ultimaBusca = 0;
     if (ativo.erro) { status(ativo.erro, 'erro'); return; }
-    if (ativo.fonte === 'forex' && !cfg.chave) { status('Para forex, cole a chave da Twelve Data nos ajustes do painel', 'erro'); return; }
     try {
-      status('Testando as combinações de ' + ativo.titulo + ' com velas reais...', 'aviso');
-      const porTf = { 1: await pedirVelas(ativo, 1, 5000), 5: await pedirVelas(ativo, 5, 5000) };
+      status('Testando as combinações de ' + ativo.titulo + ' com as velas da Olymp...', 'aviso');
+      const porTf = { 1: await pedirVelas(ativo, 1, 3000), 5: await pedirVelas(ativo, 5, 3000) };
       if (ativo.fonte === 'pagina' && porTf[1].length < MIN_VELAS) {
         status(`${ativo.titulo}: juntando velas pela tela (${porTf[1].length} de ${MIN_VELAS} de 1 min). Deixe este ativo aberto.`, 'aviso');
         ativo.juntando = true;
@@ -336,9 +351,7 @@
     if (cfg.modo !== 'manual' && Date.now() - rankingEm > 60 * MINUTO) { chaveAtivo = ''; return; }
     const agora = Date.now();
     // forex: uma busca por minuto (limite do plano grátis); cripto: a cada 2 s
-    const devido = ativo.fonte === 'cripto' || ativo.fonte === 'pagina'
-      ? agora - ultimaBusca >= 2000
-      : Math.floor((agora - 3000) / MINUTO) > Math.floor((ultimaBusca - 3000) / MINUTO);
+    const devido = agora - ultimaBusca >= 2000;
     if (!devido) return;
     buscando = true;
     ultimaBusca = agora;
@@ -363,34 +376,18 @@
     if (rodandoGeral) return;
     rodandoGeral = true;
     rankingGeral = [];
-    let chamadasForex = 0;
-    for (const alvo of RANKING_ATIVOS) {
-      if (alvo.fonte === 'forex') {
-        if (!cfg.chave) continue;
-        if (chamadasForex >= 6) { status('Ranking geral: esperando o limite da Twelve Data (1 min)...', 'aviso'); desenhar(); await espera(62000); chamadasForex = 0; }
-        chamadasForex += 2;
-      }
+    const lista = rankingAtivos();
+    if (!lista.length) status('Ranking geral: esperando a lista de ativos da Olymp...', 'aviso');
+    for (const alvo of lista) {
       try {
         status('Ranking geral: testando ' + alvo.titulo + '...', 'aviso');
         desenhar();
-        const v1 = await pedirVelas(alvo, 1, 5000);
-        // mercado fechado (forex no fim de semana): a última vela é antiga
+        const v1 = await pedirVelas(alvo, 1, 1200);
+        // ativo parado (mercado fechado): a última vela é antiga
         if (!v1.length || Date.now() - v1[v1.length - 1].t > 15 * MINUTO) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: 'mercado fechado' }); continue; }
-        const r = await rankear({ 1: v1, 5: await pedirVelas(alvo, 5, 5000) });
+        const r = await rankear({ 1: v1, 5: await pedirVelas(alvo, 5, 600) });
         rankingGeral.push({ titulo: alvo.titulo, alvo, melhor: r.melhor });
       } catch (e) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: e.message }); }
-    }
-    // OTC e outros ativos que já juntaram velas suficientes pela tela
-    const tudo = await new Promise((ok) => chrome.storage.local.get(null, ok));
-    for (const k of Object.keys(tudo || {})) {
-      if (!k.startsWith('hist:')) continue;
-      const nome = k.slice(5);
-      const v1 = tudo[k];
-      if (!Array.isArray(v1) || v1.length < MIN_VELAS) continue;
-      const alvo = { titulo: nome, fonte: 'pagina', simbolo: nome, busca: nome };
-      colecao[nome] = colecao[nome] || v1;
-      const r = await rankear({ 1: v1, 5: agregar(v1, 5) });
-      rankingGeral.push({ titulo: nome, alvo, melhor: r.melhor });
     }
     rankingGeral.sort((x, y) => (y.melhor ? y.melhor.total.lucro : -1e9) - (x.melhor ? x.melhor.total.lucro : -1e9));
     rodandoGeral = false;

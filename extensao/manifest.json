@@ -1,15 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Robô de Sinais - Piloto",
-  "version": "1.23.2",
-  "description": "Opera os sinais do Robô de Sinais na Olymp Trade e manda o histórico para o app.",
+  "version": "1.24.0",
+  "description": "Opera na Olymp Trade usando o gráfico da própria Olymp e manda o histórico para o app.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
-    "https://api.binance.com/*",
-    "https://data-api.binance.vision/*",
-    "https://api.twelvedata.com/*",
     "https://fyxksvydxwvygjebanno.supabase.co/*"
   ],
   "background": {
