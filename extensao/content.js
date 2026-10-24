@@ -9,7 +9,7 @@
   const PADRAO = {
     ligado: false, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
-    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5,
+    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 2,
   };
 
   // ---------- ativos ----------
@@ -284,14 +284,48 @@
     return Math.max(1, Math.floor((s * cfg.percent) / 100));
   }
 
+  // ---------- controle único entre janelas (mesma conta) ----------
+  // guardado no chrome.storage: operações abertas de todas as janelas e o placar da conta
+  const ABA = Math.random().toString(36).slice(2);
+  let contaGlobal = { abertas: {}, resultado: 0, perdasSeguidas: 0, ganhos: 0, perdas: 0, parado: '' };
+  const lerConta = () => new Promise((ok) => chrome.storage.local.get('conta', (r) => ok({ ...contaGlobal, ...(r.conta || {}) })));
+  const gravarConta = (cg) => new Promise((ok) => { contaGlobal = cg; chrome.storage.local.set({ conta: cg }, ok); });
+  lerConta().then((cg) => { contaGlobal = cg; });
+  if (chrome.storage.onChanged) chrome.storage.onChanged.addListener((mud) => { if (mud.conta) { contaGlobal = { ...contaGlobal, ...mud.conta.newValue }; desenhar(); } });
+  function limparVencidas(cg) {
+    const agora = Date.now();
+    for (const k of Object.keys(cg.abertas || {})) if (cg.abertas[k].ate < agora) delete cg.abertas[k];
+    return cg;
+  }
+  // tenta reservar uma vaga para operar; devolve o motivo se não puder
+  async function reservar(id, dir, ate) {
+    await espera(Math.floor(Math.random() * 400)); // evita duas janelas reservarem no mesmo instante
+    const cg = limparVencidas(await lerConta());
+    if (cg.parado) return 'robô parado na conta: ' + cg.parado;
+    const abertas = Object.values(cg.abertas);
+    if (cfg.maxAbertas > 0 && abertas.length >= cfg.maxAbertas) return `já há ${abertas.length} operações abertas na conta`;
+    if (ativo.fonte === 'cripto' && abertas.some((a) => a.cripto && a.dir === dir && a.ativo !== ativo.titulo)) return 'já há cripto aberta na mesma direção';
+    cg.abertas = { ...cg.abertas, [id]: { ativo: ativo.titulo, cripto: ativo.fonte === 'cripto', dir, ate, aba: ABA } };
+    await gravarConta(cg);
+    return null;
+  }
+  async function liberar(id) {
+    const cg = await lerConta();
+    if (cg.abertas && cg.abertas[id]) { delete cg.abertas[id]; await gravarConta(cg); }
+  }
+  // retorno do ativo na Olymp (ex.: "80%"), usado para calcular o resultado sem misturar as janelas
+  const retornoAtivo = () => { const n = parseFloat((q('[data-test="asset-select-button-title-value"]')?.innerText || '').replace(',', '.')); return isFinite(n) ? n / 100 : RETORNO; };
+
   async function operar(sinal, c) {
     const base = { hora: sinal.t, dir: sinal.dir, estrategia: c.nome };
     if (!cfg.ligado) { registrar({ ...base, situacao: 'só sinal (robô desligado)' }); return; }
-    if (sessao.parado) { registrar({ ...base, situacao: 'não operou: ' + sessao.parado }); return; }
-    if (operando || Date.now() < livreAte) { registrar({ ...base, situacao: 'pulou: já havia operação aberta' }); return; }
+    if (operando || Date.now() < livreAte) { registrar({ ...base, situacao: 'pulou: já havia operação aberta nesta janela' }); return; }
     operando = true;
+    const id = ABA + '-' + sinal.t + '-' + c.est;
+    const motivo = await reservar(id, sinal.dir, Date.now() + c.exp * MINUTO + 15000);
+    if (motivo) { operando = false; registrar({ ...base, situacao: 'pulou: ' + motivo }); return; }
     const valor = valorDaEntrada();
-    const reg = registrar({ ...base, valor, conta: conta(), situacao: 'entrando...' });
+    const reg = registrar({ ...base, valor, conta: conta(), situacao: 'entrando...', id, sinal, retorno: retornoAtivo() });
     try {
       await ajustarValor(valor);
       await ajustarDuracao(c.exp);
@@ -311,6 +345,7 @@
       reg.saldoAntes = antes;
       setTimeout(() => conferir(reg), c.exp * MINUTO + 8000);
     } catch (e) {
+      liberar(id);
       reg.situacao = 'falhou: ' + e.message;
       if (travadas >= 3) { reg.situacao += ' · recarregando a página'; setTimeout(() => location.reload(), 3000); }
     }
@@ -318,16 +353,29 @@
     desenhar();
   }
 
-  function conferir(reg) {
-    const dif = Math.round((saldo() - reg.saldoAntes) * 100) / 100;
-    reg.resultado = isFinite(dif) ? dif : null;
-    reg.situacao = reg.resultado == null ? 'sem leitura do saldo' : reg.resultado > 0 ? 'ganhou' : reg.resultado < 0 ? 'perdeu' : 'empate';
+  // resultado pela cotação (não pelo saldo, que mistura as operações das outras janelas)
+  async function conferir(reg) {
+    const s = reg.sinal;
+    let res = s.res;
+    if (res !== 'acerto' && res !== 'erro') {
+      const m = Object.values(motores).find((x) => x.velas.length);
+      const ult = m ? m.velas[m.velas.length - 1].c : null;
+      res = ult == null || ult === s.entrada ? null : (s.dir === 'up' ? ult > s.entrada : ult < s.entrada) ? 'acerto' : 'erro';
+    }
+    reg.resultado = res === 'acerto' ? Math.round(reg.valor * reg.retorno * 100) / 100 : res === 'erro' ? -reg.valor : null;
+    reg.situacao = reg.resultado == null ? 'empate' : reg.resultado > 0 ? 'ganhou' : 'perdeu';
+    sessao.resultado += reg.resultado || 0;
+    await liberar(reg.id);
     if (reg.resultado != null) {
-      sessao.resultado += reg.resultado;
-      sessao.perdasSeguidas = reg.resultado < 0 ? sessao.perdasSeguidas + 1 : 0;
-      // 0 = sem limite
-      if (cfg.maxPerdasSeguidas > 0 && sessao.perdasSeguidas >= cfg.maxPerdasSeguidas) parar(`${sessao.perdasSeguidas} perdas seguidas`);
-      if (cfg.limitePerda > 0 && -sessao.resultado >= cfg.limitePerda) parar(`prejuízo da sessão chegou a ${(-sessao.resultado).toFixed(2)}`);
+      const cg = await lerConta();
+      cg.resultado = (cg.resultado || 0) + reg.resultado;
+      cg.perdasSeguidas = reg.resultado < 0 ? (cg.perdasSeguidas || 0) + 1 : 0;
+      if (reg.resultado > 0) cg.ganhos = (cg.ganhos || 0) + 1; else cg.perdas = (cg.perdas || 0) + 1;
+      // 0 = sem limite; os limites valem para a conta toda
+      if (cfg.maxPerdasSeguidas > 0 && cg.perdasSeguidas >= cfg.maxPerdasSeguidas) cg.parado = `${cg.perdasSeguidas} perdas seguidas`;
+      if (cfg.limitePerda > 0 && -cg.resultado >= cfg.limitePerda) cg.parado = `prejuízo da conta chegou a ${(-cg.resultado).toFixed(2)}`;
+      await gravarConta(cg);
+      if (cg.parado) parar(cg.parado);
     }
     desenhar();
   }
@@ -396,11 +444,11 @@
     const a = e.target.dataset.a;
     if (a === 'ligar') {
       cfg.ligado = !cfg.ligado;
-      if (cfg.ligado) { sessao.parado = ''; sessao.perdasSeguidas = 0; }
+      if (cfg.ligado) { sessao.parado = ''; sessao.perdasSeguidas = 0; lerConta().then((cg) => { if (cg.parado) { cg.parado = ''; cg.perdasSeguidas = 0; gravarConta(cg); } }); }
       salvar();
       desenhar(true);
     }
-    if (a === 'zerar') { sessao.ops.length = 0; sessao.resultado = 0; sessao.perdasSeguidas = 0; sessao.parado = ''; desenhar(true); }
+    if (a === 'zerar') { sessao.ops.length = 0; sessao.resultado = 0; sessao.perdasSeguidas = 0; sessao.parado = ''; gravarConta({ abertas: {}, resultado: 0, perdasSeguidas: 0, ganhos: 0, perdas: 0, parado: '' }); desenhar(true); }
     if (a === 'geral') rodarRankingGeral();
   }
 
@@ -443,8 +491,9 @@ ${real ? `<div class="rs-real">CONTA REAL: as operações usam dinheiro de verda
 ${comb}
 <div class="rs-sinal"><div class="rs-ic" style="background:${sinal.bg};color:#0e141d;font-weight:800;font-size:20px">${sinal.ic}</div><div><div class="rs-t">${esc(sinal.t)}</div><div class="rs-mono" style="color:#8b97a8;font-size:12px">${esc(sinal.s)}</div></div></div>
 <button class="rs-b" data-a="ligar" style="background:${cfg.ligado ? '#f0675b' : '#2fc59c'};color:#0e141d">${cfg.ligado ? 'Desligar robô' : 'Ligar robô (operar)'}</button>
-${sessao.parado ? `<div style="color:#f0675b;font-size:12px">Robô parou: ${esc(sessao.parado)}</div>` : ''}
-<div class="rs-row rs-mono" style="font-size:12px"><div>Sessão: <b style="color:${sessao.resultado >= 0 ? '#2fc59c' : '#f0675b'}">${sessao.resultado >= 0 ? '+' : ''}${sessao.resultado.toFixed(2)}</b></div><div>${ganhos} ganhos · ${perdas} perdas</div></div>
+${sessao.parado || contaGlobal.parado ? `<div style="color:#f0675b;font-size:12px">Robô parou: ${esc(sessao.parado || contaGlobal.parado)}</div>` : ''}
+<div class="rs-row rs-mono" style="font-size:12px"><div>Esta janela: <b style="color:${sessao.resultado >= 0 ? '#2fc59c' : '#f0675b'}">${sessao.resultado >= 0 ? '+' : ''}${sessao.resultado.toFixed(2)}</b></div><div>${ganhos} ganhos · ${perdas} perdas</div></div>
+<div class="rs-row rs-mono" style="font-size:12px"><div>Conta toda: <b style="color:${(contaGlobal.resultado || 0) >= 0 ? '#2fc59c' : '#f0675b'}">${(contaGlobal.resultado || 0) >= 0 ? '+' : ''}${(contaGlobal.resultado || 0).toFixed(2)}</b></div><div>${contaGlobal.ganhos || 0} g · ${contaGlobal.perdas || 0} p · ${Object.keys(limparVencidas({ abertas: { ...(contaGlobal.abertas || {}) } }).abertas).length} abertas</div></div>
 <div class="rs-ops">${sessao.ops.slice(0, 8).map((o) => `<div class="rs-op"><span class="rs-mono">${hora(o.hora)} ${o.dir === 'up' ? '▲ Compra' : '▼ Venda'}</span><span>${esc(o.situacao)}</span><span class="rs-mono" style="color:${o.resultado > 0 ? '#2fc59c' : o.resultado < 0 ? '#f0675b' : '#8b97a8'}">${o.resultado != null ? (o.resultado > 0 ? '+' : '') + o.resultado.toFixed(2) : ''}</span></div>`).join('') || '<span style="color:#8b97a8">Nenhuma operação ainda</span>'}</div>
 <button class="rs-b" data-a="geral" style="background:#253042;color:#e7ecf3;font-size:12px;padding:7px">${rodandoGeral ? 'Testando todos os ativos...' : 'Testar todos os ativos (ranking geral)'}</button>
 ${geral}`;
@@ -462,6 +511,7 @@ ${cfg.modo === 'manual' ? `<div class="rs-row">
 ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="percent" value="${cfg.percent}" inputmode="decimal"></label>` : `<label>Valor por operação<input data-k="valor" value="${cfg.valor}" inputmode="decimal"></label>`}
 <label>Parar após perdas seguidas (0 = nunca)<input data-k="maxPerdasSeguidas" value="${cfg.maxPerdasSeguidas}" inputmode="numeric"></label>
 <label>Parar se perder na sessão (0 = nunca)<input data-k="limitePerda" value="${cfg.limitePerda}" inputmode="decimal"></label>
+<label>Máx. operações abertas na conta (0 = sem limite)<input data-k="maxAbertas" value="${cfg.maxAbertas}" inputmode="numeric"></label>
 <label>Acerto mínimo no teste (%)<input data-k="minAcerto" value="${cfg.minAcerto}" inputmode="numeric"></label>
 <label>Sinais mínimos no teste<input data-k="minOps" value="${cfg.minOps}" inputmode="numeric"></label>
 </div>
