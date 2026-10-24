@@ -37,6 +37,13 @@
         postar({ __rsVelas: true, id: p.id, ok: !!d, candles: d && Array.isArray(d.candles) ? d.candles : [] });
         continue;
       }
+      // negociações: 23 = resposta da abertura, 22 = aviso de abertura, 26 = fechou (status win/loss/standoff)
+      if ((ev.e === 23 || ev.e === 22 || ev.e === 26) && Array.isArray(ev.d)) {
+        for (const x of ev.d) {
+          if (!x || !x.id || !x.pair) continue;
+          postar({ __rsDeal: true, tipo: ev.e === 26 ? 'fechou' : 'abriu', id: x.id, pair: x.pair, dir: x.dir, amount: x.amount, status: x.status, bc: x.balance_change, grupo: x.group });
+        }
+      }
       // lista de ativos: objetos com id, title e group
       if (Array.isArray(ev.d) && ev.d.length && ev.d[0] && ev.d[0].id && ev.d[0].title && ev.d[0].group) {
         for (const a of ev.d) {
@@ -59,6 +66,10 @@
     w.addEventListener('message', (ev) => lerMensagem(url, ev.data));
     const sendOrig = w.send.bind(w);
     w.send = (d) => {
+      // pedido de abertura de negociação (e = 23): repassa par, direção e duração que a Olymp vai usar
+      if (typeof d === 'string' && d.includes('"e":23')) {
+        try { for (const x of JSON.parse(d)) if (x.e === 23 && x.d && x.d[0]) postar({ __rsDeal: true, tipo: 'pedido', pair: x.d[0].pair, dir: x.d[0].dir, amount: x.d[0].amount, duracao: x.d[0].duration }); } catch (e) { /* ignora */ }
+      }
       if (typeof d === 'string' && !/"__rs/.test(d)) { let c = ''; try { c = JSON.parse(d).map((x) => x.e).join(','); } catch (e) { c = '?'; } amostra('ws-envio', url, d, c); }
       return sendOrig(d);
     };

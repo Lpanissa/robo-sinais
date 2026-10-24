@@ -508,6 +508,32 @@
   // retorno do ativo na Olymp (ex.: "80%"), usado para calcular o resultado sem misturar as janelas
   const retornoAtivo = () => { const n = parseFloat((q('[data-test="asset-select-button-title-value"]')?.innerText || '').replace(',', '.')); return isFinite(n) ? n / 100 : RETORNO; };
 
+  // ---------- negociações confirmadas pela própria Olymp (olymp-escuta.js) ----------
+  const dealsVistos = {}; // id -> { pair, dir, em }
+  let ultimoPedido = null; // último pedido de abertura que a página mandou (com a duração real)
+  window.addEventListener('message', (ev) => {
+    const d = ev.data;
+    if (ev.source !== window || !d || !d.__rsDeal) return;
+    if (d.tipo === 'pedido') { ultimoPedido = { ...d, em: Date.now() }; return; }
+    if (d.tipo === 'abriu') { if (!dealsVistos[d.id]) dealsVistos[d.id] = { pair: d.pair, dir: d.dir, em: Date.now(), usado: false }; return; }
+    if (d.tipo === 'fechou') {
+      const reg = sessao.ops.find((r) => r.dealId === d.id);
+      if (!reg) return;
+      reg.olympStatus = d.status;
+      reg.olympBc = Number(d.bc) || 0;
+      if (reg.situacao === 'em andamento' && reg.fechouAntes == null) conferir(reg);
+    }
+  });
+  // espera a Olymp confirmar que abriu a negociação (até 8 s depois do clique)
+  async function esperarDeal(pair, dir, desde) {
+    for (let i = 0; i < 32; i++) {
+      const id = Object.keys(dealsVistos).find((k) => !dealsVistos[k].usado && dealsVistos[k].pair === pair && dealsVistos[k].dir === dir && dealsVistos[k].em >= desde - 1000);
+      if (id) { dealsVistos[id].usado = true; return id; }
+      await espera(250);
+    }
+    return null;
+  }
+
   async function operar(sinal, c) {
     const base = { hora: sinal.t, dir: sinal.dir, estrategia: c.nome, ativo: ativo ? ativo.titulo : '' };
     if (!cfg.ligado) { registrar({ ...base, situacao: 'só sinal (robô desligado)' }); return; }
@@ -533,13 +559,30 @@
       }
       if (!botao || botao.disabled) { travadas++; throw new Error('o botão de operar não está disponível'); }
       travadas = 0;
+      const clicouEm = Date.now();
       botao.click();
+      // só conta a ordem se a própria Olymp confirmar que abriu
+      const dealId = await esperarDeal(ativo.simbolo, sinal.dir, clicouEm);
+      if (!dealId) {
+        liberar(id);
+        reg.situacao = 'sem resultado (a Olymp não abriu a ordem)';
+        enviarOrdem(reg);
+        operando = false;
+        desenhar();
+        return;
+      }
+      reg.dealId = dealId;
+      // duração que a Olymp realmente usou (pode ser diferente da combinação, se o campo não mudou)
+      const durMin = ultimoPedido && clicouEm - ultimoPedido.em < 10000 && ultimoPedido.duracao ? ultimoPedido.duracao / 60 : c.exp;
+      reg.duracao = durMin;
       reg.situacao = 'em andamento';
       ultimaEntrada = Date.now();
       enviarOrdem(reg);
       reg.saldoAntes = antes;
-      setTimeout(() => conferir(reg), c.exp * MINUTO + 8000);
-      guardarPendente({ id, hora: reg.hora, dir: sinal.dir, valor, retorno: reg.retorno, conta: reg.conta, estrategia: c.nome, entrada: sinal.entrada, fim: Date.now() + c.exp * MINUTO, ativo: { titulo: ativo.titulo, fonte: ativo.fonte, simbolo: ativo.simbolo } });
+      reg.limiteOlymp = Date.now() + durMin * MINUTO + 3 * MINUTO;
+      // o resultado vem da Olymp quando ela fecha; isto é só a garantia se o aviso não chegar
+      setTimeout(() => conferir(reg), durMin * MINUTO + 8000);
+      guardarPendente({ id, hora: reg.hora, dir: sinal.dir, valor, retorno: reg.retorno, conta: reg.conta, estrategia: c.nome, entrada: sinal.entrada, fim: Date.now() + durMin * MINUTO, ativo: { titulo: ativo.titulo, fonte: ativo.fonte, simbolo: ativo.simbolo } });
     } catch (e) {
       liberar(id);
       reg.situacao = 'falhou: ' + e.message;
@@ -722,6 +765,14 @@
   // resultado pela cotação (não pelo saldo, que mistura as operações das outras janelas)
   // como a operação terminaria se fosse até o fim (pela cotação)
   function resultadoNoFim(reg) {
+    // resultado oficial: o aviso de fechamento da própria Olymp
+    if (reg.dealId && reg.olympStatus == null && Date.now() < (reg.limiteOlymp || 0)) { setTimeout(() => conferir(reg), 15000); return; }
+    if (reg.situacao !== 'em andamento') return; // já conferida
+    if (reg.olympStatus != null) {
+      reg.resultado = reg.olympStatus === 'standoff' ? null : Math.round(reg.olympBc * 100) / 100;
+      reg.situacao = reg.olympStatus === 'standoff' ? 'empate' : reg.resultado > 0 ? 'ganhou' : 'perdeu';
+      return fecharConta(reg);
+    }
     const s = reg.sinal;
     let res = s.res;
     if (res !== 'acerto' && res !== 'erro') {
@@ -903,6 +954,9 @@
     }
     reg.resultado = res === 'acerto' ? Math.round(reg.valor * reg.retorno * 100) / 100 : res === 'erro' ? -reg.valor : null;
     reg.situacao = reg.resultado == null ? 'empate' : reg.resultado > 0 ? 'ganhou' : 'perdeu';
+    return fecharConta(reg);
+  }
+  async function fecharConta(reg) {
     if (reg.maxFrac != null && reg.resultado != null && reg.valor > 0) guardarAmostra({ m: reg.maxFrac, f: reg.resultado / reg.valor, r: reg.retorno });
     sessao.resultado += reg.resultado || 0;
     await liberar(reg.id);
