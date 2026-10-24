@@ -70,6 +70,12 @@ function fechar(m, cfg, aviso) {
       }
       S.pre = null;
     }
+    // estratégias de extremo entram na hora em que o extremo aparece
+    if (s.imediato && !S.pre && !aberta && R.ready && R.dir) {
+      S.ops.push({ t: fimT, dir: R.dir, entrada: preco, fimT: fimT + cfg.expira * MIN, res: 'aberta' });
+      aberta = true;
+      if (aviso) aviso(s.id, 'sinal');
+    }
     // depois de um cancelamento, a vela atual ainda pode abrir um novo alerta
     if (!S.pre && !aberta && R.dir && (R.ready || R.near)) {
       S.pre = { dir: R.dir, ready: !!R.ready, ateT: fimT + TF };

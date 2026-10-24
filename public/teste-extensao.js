@@ -78,10 +78,19 @@ function atr(v, n = 14) {
   return s.reduce((a, k) => a + (k.h - k.l), 0) / s.length || 1e-9;
 }
 
+function estocastico(velas, n = 14) {
+  const s = velas.slice(-n);
+  const hi = Math.max(...s.map((k) => k.h)), lo = Math.min(...s.map((k) => k.l));
+  return hi === lo ? 50 : (100 * (velas[velas.length - 1].c - lo)) / (hi - lo);
+}
+
 function indicadores(velas) {
   const cl = velas.map((k) => k.c);
   const n = cl.length - 1;
-  return { cl, n, e9: ema(cl, 9), e21: ema(cl, 21), r: rsi(cl.slice(-200)), b: bollinger(cl), atr: atr(velas), last: velas[n] };
+  return {
+    cl, n, e9: ema(cl, 9), e21: ema(cl, 21), r: rsi(cl.slice(-200)), r2: rsi(cl.slice(-200), 2),
+    b: bollinger(cl), atr: atr(velas), st: estocastico(velas), last: velas[n],
+  };
 }
 const ESTRATEGIAS = [
   {
@@ -125,6 +134,26 @@ const ESTRATEGIAS = [
       if (k.h >= hi && k.c < k.o) return { dir: 'down', ready: true };
       if (k.c - lo < I.atr * 0.4) return { dir: 'up', near: true };
       if (hi - k.c < I.atr * 0.4) return { dir: 'down', near: true };
+      return {};
+    },
+  },
+  {
+    id: 'esto', nome: 'Estocástico extremo', desc: 'Estocástico 14 abaixo de 5 compra, acima de 95 vende', imediato: true,
+    fn(I) {
+      if (I.st < 5) return { dir: 'up', ready: true };
+      if (I.st > 95) return { dir: 'down', ready: true };
+      if (I.st < 12) return { dir: 'up', near: true };
+      if (I.st > 88) return { dir: 'down', near: true };
+      return {};
+    },
+  },
+  {
+    id: 'rsi2', nome: 'RSI 2 extremo', desc: 'RSI de 2 períodos abaixo de 5 compra, acima de 95 vende', imediato: true,
+    fn(I) {
+      if (I.r2 < 5) return { dir: 'up', ready: true };
+      if (I.r2 > 95) return { dir: 'down', ready: true };
+      if (I.r2 < 15) return { dir: 'up', near: true };
+      if (I.r2 > 85) return { dir: 'down', near: true };
       return {};
     },
   },
@@ -198,6 +227,12 @@ function fechar(m, cfg, aviso) {
         S.ops.push({ t: fimT, dir: S.pre.dir, res: 'cancelado' });
       }
       S.pre = null;
+    }
+    // estratégias de extremo entram na hora em que o extremo aparece
+    if (s.imediato && !S.pre && !aberta && R.ready && R.dir) {
+      S.ops.push({ t: fimT, dir: R.dir, entrada: preco, fimT: fimT + cfg.expira * MIN, res: 'aberta' });
+      aberta = true;
+      if (aviso) aviso(s.id, 'sinal');
     }
     // depois de um cancelamento, a vela atual ainda pode abrir um novo alerta
     if (!S.pre && !aberta && R.dir && (R.ready || R.near)) {
@@ -311,12 +346,14 @@ function placar(S, cfg, zero) {
       const w = v.slice(Math.max(0, i - 220), i + 1);
       const R = est.fn(indicadores(w), rigor, w) || {};
       const k = v[i];
+      let entrou = false;
       if (pre) {
         const ok = (R.ready && R.dir === pre.dir) || ((pre.ready || (R.near && R.dir === pre.dir)) && (pre.dir === 'up' ? k.c > k.o : k.c < k.o));
-        if (ok) out.push({ i, dir: pre.dir });
+        if (ok) { out.push({ i, dir: pre.dir }); entrou = true; }
         pre = null;
       }
-      if (!pre && R.dir && (R.ready || R.near)) pre = { dir: R.dir, ready: !!R.ready };
+      if (est.imediato && !entrou && R.ready && R.dir) { out.push({ i, dir: R.dir }); entrou = true; }
+      if (!entrou && R.dir && (R.ready || R.near)) pre = { dir: R.dir, ready: !!R.ready };
     }
     return out;
   }

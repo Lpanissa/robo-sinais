@@ -88,12 +88,14 @@
       const w = v.slice(Math.max(0, i - 220), i + 1);
       const R = est.fn(indicadores(w), rigor, w) || {};
       const k = v[i];
+      let entrou = false;
       if (pre) {
         const ok = (R.ready && R.dir === pre.dir) || ((pre.ready || (R.near && R.dir === pre.dir)) && (pre.dir === 'up' ? k.c > k.o : k.c < k.o));
-        if (ok) out.push({ i, dir: pre.dir });
+        if (ok) { out.push({ i, dir: pre.dir }); entrou = true; }
         pre = null;
       }
-      if (!pre && R.dir && (R.ready || R.near)) pre = { dir: R.dir, ready: !!R.ready };
+      if (est.imediato && !entrou && R.ready && R.dir) { out.push({ i, dir: R.dir }); entrou = true; }
+      if (!entrou && R.dir && (R.ready || R.near)) pre = { dir: R.dir, ready: !!R.ready };
     }
     return out;
   }

@@ -34,8 +34,17 @@ export function atr(v, n = 14) {
   return s.reduce((a, k) => a + (k.h - k.l), 0) / s.length || 1e-9;
 }
 
+export function estocastico(velas, n = 14) {
+  const s = velas.slice(-n);
+  const hi = Math.max(...s.map((k) => k.h)), lo = Math.min(...s.map((k) => k.l));
+  return hi === lo ? 50 : (100 * (velas[velas.length - 1].c - lo)) / (hi - lo);
+}
+
 export function indicadores(velas) {
   const cl = velas.map((k) => k.c);
   const n = cl.length - 1;
-  return { cl, n, e9: ema(cl, 9), e21: ema(cl, 21), r: rsi(cl.slice(-200)), b: bollinger(cl), atr: atr(velas), last: velas[n] };
+  return {
+    cl, n, e9: ema(cl, 9), e21: ema(cl, 21), r: rsi(cl.slice(-200)), r2: rsi(cl.slice(-200), 2),
+    b: bollinger(cl), atr: atr(velas), st: estocastico(velas), last: velas[n],
+  };
 }

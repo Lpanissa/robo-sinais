@@ -43,4 +43,24 @@ export const ESTRATEGIAS = [
       return {};
     },
   },
+  {
+    id: 'esto', nome: 'Estocástico extremo', desc: 'Estocástico 14 abaixo de 5 compra, acima de 95 vende', imediato: true,
+    fn(I) {
+      if (I.st < 5) return { dir: 'up', ready: true };
+      if (I.st > 95) return { dir: 'down', ready: true };
+      if (I.st < 12) return { dir: 'up', near: true };
+      if (I.st > 88) return { dir: 'down', near: true };
+      return {};
+    },
+  },
+  {
+    id: 'rsi2', nome: 'RSI 2 extremo', desc: 'RSI de 2 períodos abaixo de 5 compra, acima de 95 vende', imediato: true,
+    fn(I) {
+      if (I.r2 < 5) return { dir: 'up', ready: true };
+      if (I.r2 > 95) return { dir: 'down', ready: true };
+      if (I.r2 < 15) return { dir: 'up', near: true };
+      if (I.r2 > 85) return { dir: 'down', near: true };
+      return {};
+    },
+  },
 ];
