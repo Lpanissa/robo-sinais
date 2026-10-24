@@ -469,14 +469,19 @@
     return cg;
   }
   // tenta reservar uma vaga para operar; devolve o motivo se não puder
-  async function reservar(id, dir, ate) {
+  async function reservar(id, dir, ate, est) {
     await espera(Math.floor(Math.random() * 400)); // evita duas janelas reservarem no mesmo instante
     const cg = limparVencidas(await lerConta());
     if (cg.parado) return 'robô parado na conta: ' + cg.parado;
     const abertas = Object.values(cg.abertas);
     if (cfg.maxAbertas > 0 && abertas.length >= cfg.maxAbertas) return `já há ${abertas.length} operações abertas na conta`;
+    // não repete a mesma aposta: a mesma estratégia no mesmo ativo e direção só entra de novo quando a anterior terminar,
+    // e no mesmo ativo e direção entra no máximo uma ordem por minuto (duas estratégias concordando não viram duas ordens)
+    const mesma = abertas.filter((a) => a.ativo === ativo.titulo && a.dir === dir);
+    if (mesma.some((a) => a.est === est)) return 'já tem uma ordem aberta desta estratégia nesta direção';
+    if (mesma.some((a) => a.desde && Date.now() - a.desde < 60000)) return 'já entrou neste ativo e direção há menos de 1 minuto';
     if (cfg.maxAbertas > 0 && ativo.fonte === 'cripto' && abertas.some((a) => a.cripto && a.dir === dir && a.ativo !== ativo.titulo)) return 'já há cripto aberta na mesma direção';
-    cg.abertas = { ...cg.abertas, [id]: { ativo: ativo.titulo, cripto: ativo.fonte === 'cripto', dir, ate, aba: ABA } };
+    cg.abertas = { ...cg.abertas, [id]: { ativo: ativo.titulo, cripto: ativo.fonte === 'cripto', dir, ate, aba: ABA, est, desde: Date.now() } };
     await gravarConta(cg);
     return null;
   }
@@ -495,7 +500,7 @@
     if (operando) { registrar({ ...base, situacao: 'pulou: a Olymp não liberou a tela a tempo' }); return; }
     operando = true;
     const id = ABA + '-' + sinal.t + '-' + c.est;
-    const motivo = await reservar(id, sinal.dir, Date.now() + c.exp * MINUTO + 15000);
+    const motivo = await reservar(id, sinal.dir, Date.now() + c.exp * MINUTO + 15000, c.est);
     if (motivo) { operando = false; registrar({ ...base, situacao: 'pulou: ' + motivo }); return; }
     const valor = valorDaEntrada();
     const reg = registrar({ ...base, valor, conta: conta(), situacao: 'entrando...', id, sinal, retorno: retornoAtivo() });
@@ -518,6 +523,7 @@
       enviarOrdem(reg);
       reg.saldoAntes = antes;
       setTimeout(() => conferir(reg), c.exp * MINUTO + 8000);
+      guardarPendente({ id, hora: reg.hora, dir: sinal.dir, valor, retorno: reg.retorno, conta: reg.conta, estrategia: c.nome, entrada: sinal.entrada, fim: Date.now() + c.exp * MINUTO, ativo: { titulo: ativo.titulo, fonte: ativo.fonte, simbolo: ativo.simbolo } });
     } catch (e) {
       liberar(id);
       reg.situacao = 'falhou: ' + e.message;
@@ -722,6 +728,45 @@
     await new Promise((ok) => chrome.storage.local.set({ fecharStats: atual }, ok));
   }
 
+  // ---------- ordens em andamento guardadas (se a página recarregar, o resultado é conferido depois) ----------
+  const lerPendentes = () => new Promise((ok) => chrome.storage.local.get('pendentes', (r) => ok((r && r.pendentes) || {})));
+  async function guardarPendente(p) { const m = await lerPendentes(); m[p.id] = p; chrome.storage.local.set({ pendentes: m }); }
+  async function tirarPendente(id) { const m = await lerPendentes(); if (m[id]) { delete m[id]; chrome.storage.local.set({ pendentes: m }); } }
+  async function conferirOrfas() {
+    const m = await lerPendentes();
+    const minhas = new Set(sessao.ops.filter((r) => r.situacao === 'em andamento').map((r) => r.id));
+    const vencidas = Object.values(m).filter((p) => p.fim + 30000 < Date.now() && !minhas.has(p.id));
+    if (!vencidas.length) return;
+    // tira da lista antes de conferir, para outra janela não conferir a mesma
+    for (const p of vencidas) delete m[p.id];
+    await new Promise((ok) => chrome.storage.local.set({ pendentes: m }, ok));
+    for (const p of vencidas) {
+      let resultado = null, situacao = 'sem resultado (a página recarregou)';
+      try {
+        const v = await pedirVelas(p.ativo, 1, 1000);
+        const k = v.find((x) => x.t <= p.fim && p.fim < x.t + MINUTO);
+        if (k && p.entrada != null && k.c !== p.entrada) {
+          const ganhou = p.dir === 'up' ? k.c > p.entrada : k.c < p.entrada;
+          resultado = ganhou ? Math.round(p.valor * p.retorno * 100) / 100 : -p.valor;
+          situacao = ganhou ? 'ganhou' : 'perdeu';
+        } else if (k) situacao = 'empate';
+      } catch (e) { /* sem velas: fica sem resultado */ }
+      await liberar(p.id);
+      if (resultado != null) {
+        const cg = await lerConta();
+        cg.resultado = (cg.resultado || 0) + resultado;
+        if (resultado > 0) cg.ganhos = (cg.ganhos || 0) + 1; else cg.perdas = (cg.perdas || 0) + 1;
+        somarNoDia(cg, resultado);
+        await gravarConta(cg);
+        if (cg.parado) parar(cg.parado);
+      }
+      enviarOrdem({ id: p.id, hora: p.hora, conta: p.conta, ativo: p.ativo.titulo, estrategia: p.estrategia, dir: p.dir, valor: p.valor, resultado, situacao });
+    }
+    desenhar();
+  }
+  setTimeout(() => { conferirOrfas().catch(() => {}); }, 20000);
+  repetir(() => conferirOrfas(), 120000);
+
   // ---------- limites do dia (meta de ganho e limite de perda; zeram à meia-noite) ----------
   const hojeTxt = () => { const d = new Date(); return `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`; };
   const PARADA_DIA = /^(meta do dia|limite de perda do dia)/;
@@ -745,6 +790,7 @@
   repetir(() => viradaDoDia(), 60000);
 
   async function conferir(reg) {
+    tirarPendente(reg.id);
     if (reg.fechouAntes != null) {
       await anotarComparacao(reg);
       if (reg.maxFrac != null && reg.seFosseAteOFim != null && reg.valor > 0) guardarAmostra({ m: reg.maxFrac, f: reg.seFosseAteOFim / reg.valor, r: reg.retorno });
