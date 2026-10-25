@@ -1,1 +1,1 @@
-Novo quadro Ativos testados: mostra a porcentagem de acerto de cada ativo que o robô testou, e quais passaram no filtro.
+Abertura nova: só as três velas, sem pavio e sem a bolinha.
