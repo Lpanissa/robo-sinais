@@ -53,6 +53,7 @@ export default function ControleRobo() {
   const [linha, setLinha] = useState(null);
   const [erro, setErro] = useState('');
   const [abrirAjustes, setAbrirAjustes] = useState(false);
+  const [verTestados, setVerTestados] = useState(false); // lista de ativos testados fechada: mostra só o ativo atual
   const [salvando, setSalvando] = useState(false);
   const local = useRef(null); // mudança feita aqui, esperando o PC confirmar
 
@@ -106,9 +107,12 @@ export default function ControleRobo() {
 
       {online && Array.isArray(principal.ranking) && principal.ranking.length > 0 && (
         <View style={s.card}>
-          <Text style={s.titulo}>Ativos testados</Text>
-          <Text style={s.sub}>Acerto da melhor estratégia de cada ativo no teste. Só opera o que passa de {principal.minAcerto ?? cfg.minAcerto}%.</Text>
-          {principal.ranking.map((r) => (
+          <Pressable onPress={() => setVerTestados(!verTestados)} style={[s.linha, { justifyContent: 'space-between' }]}>
+            <Text style={s.titulo}>Ativos testados <Text style={[s.sub, { fontWeight: '400' }]}>({principal.ranking.length})</Text></Text>
+            <Text style={{ color: C.suave, fontSize: 18, fontWeight: '700', paddingHorizontal: 6 }}>{verTestados ? '▴' : '▾'}</Text>
+          </Pressable>
+          {verTestados && <Text style={s.sub}>Acerto da melhor estratégia de cada ativo no teste. Só opera o que passa de {principal.minAcerto ?? cfg.minAcerto}%.</Text>}
+          {(verTestados ? principal.ranking : [principal.ranking.find((r) => r.t === principal.ativo) || principal.ranking[0]]).map((r) => (
             <View key={r.t} style={[s.linha, { justifyContent: 'space-between', paddingVertical: 6, borderTopWidth: 1, borderTopColor: C.linha }]}>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: C.texto, fontSize: 14, fontWeight: '700' }}>{r.t}</Text>
