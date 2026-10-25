@@ -542,6 +542,9 @@
       if (id) { dealsVistos[id].usado = true; return id; }
       await espera(250);
     }
+    // a Olymp às vezes manda o ativo com outro nome: aceita a negociação na mesma direção aberta logo depois do clique
+    const solta = Object.keys(dealsVistos).filter((k) => !dealsVistos[k].usado && dealsVistos[k].dir === dir && dealsVistos[k].em >= desde - 1000);
+    if (solta.length === 1) { dealsVistos[solta[0]].usado = true; return solta[0]; }
     return null;
   }
 
@@ -573,7 +576,15 @@
       const clicouEm = Date.now();
       botao.click();
       // só conta a ordem se a própria Olymp confirmar que abriu
-      const dealId = await esperarDeal(ativo.simbolo, sinal.dir, clicouEm);
+      let dealId = await esperarDeal(ativo.simbolo, sinal.dir, clicouEm);
+      // sem o aviso da Olymp, confere pelo saldo: se caiu o valor da entrada, a ordem abriu
+      if (!dealId && isFinite(antes)) {
+        for (let i = 0; i < 12 && !dealId; i++) {
+          const agora = saldo();
+          if (isFinite(agora) && antes - agora >= valor * 0.9) dealId = 'saldo-' + clicouEm;
+          else await espera(250);
+        }
+      }
       if (!dealId) {
         liberar(id);
         reg.situacao = 'sem resultado (a Olymp não abriu a ordem' + (ultimaRecusa && Date.now() - ultimaRecusa.em < 15000 ? ': ' + ultimaRecusa.motivo.slice(0, 120) : '') + ')';
