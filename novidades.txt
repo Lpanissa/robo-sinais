@@ -1,1 +1,1 @@
-Controle do robô do PC pelo app: ligar e desligar e todas as configurações (metas do dia, fechar antes, valor, modo mais assertivo e o resto). Abertura com as velas animadas no lugar da tela branca. O app passa a se atualizar sozinho.
+Novo nome no topo: PanissAsset. Toque numa ordem aberta para ver o gráfico ao vivo, com o preço de entrada, o tempo que falta e se está ganhando. A aba Sinais ao vivo saiu.
