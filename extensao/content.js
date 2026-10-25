@@ -27,7 +27,7 @@
   const PADRAO = {
     ligado: false, autoAtivo: false, sempreLeitura: 1, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
-    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0, metaGanhoDia: 0, limitePerdaDia: 0,
+    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0, metaGanhoDia: 0, limitePerdaDia: 0, minExpira: 0, minConfianca: 55,
     fecharAlvo: 0, fecharModo: 'auto', fecharManuais: 0, // fechar antes no lucro (0 = nunca); sem stop de perda
   };
 
@@ -144,6 +144,12 @@
     }
     return { n: w + l, ac: w + l ? (100 * w) / (w + l) : 0, lucro: w * RETORNO - l };
   }
+  // acerto mínimo "garantido" com 95% de confiança (limite de Wilson): com poucos sinais, 62% pode ser sorte; com muitos, não
+  function confianca(m) {
+    if (!m || !m.n) return 0;
+    const z = 1.645, n = m.n, p = m.ac / 100;
+    return 100 * (p + z * z / (2 * n) - z * Math.sqrt((p * (1 - p) + z * z / (4 * n)) / n)) / (1 + z * z / n);
+  }
   // escolhe numa parte do histórico (60%) e confere na parte seguinte (40%), para não escolher por sorte
   async function rankear(porTf) {
     const linhas = [];
@@ -163,11 +169,12 @@
         }
       }
     }
-    const aprovadas = linhas.filter((r) => !TIRADAS.has(r.est) && r.a.n >= cfg.minOps * 0.6 && r.b.n >= cfg.minOps * 0.4 && r.a.ac >= cfg.minAcerto && r.b.ac >= cfg.minAcerto);
-    aprovadas.sort((x, y) => y.total.lucro - x.total.lucro);
+    for (const r of linhas) r.conf = confianca(r.total);
+    const aprovadas = linhas.filter((r) => !TIRADAS.has(r.est) && r.exp >= (cfg.minExpira || 0) && r.a.n >= cfg.minOps * 0.6 && r.b.n >= cfg.minOps * 0.4 && r.a.ac >= cfg.minAcerto && r.b.ac >= cfg.minAcerto && r.conf >= (cfg.minConfianca || 0));
+    aprovadas.sort((x, y) => y.conf - x.conf); // a mais confiável primeiro
     linhas.sort((x, y) => y.total.lucro - x.total.lucro);
     // a que mais chegou perto (pior das duas partes do teste), com sinais suficientes: para mostrar a % mesmo sem aprovar
-    const comSinais = linhas.filter((r) => !TIRADAS.has(r.est) && r.a.n >= cfg.minOps * 0.6 && r.b.n >= cfg.minOps * 0.4);
+    const comSinais = linhas.filter((r) => !TIRADAS.has(r.est) && r.exp >= (cfg.minExpira || 0) && r.a.n >= cfg.minOps * 0.6 && r.b.n >= cfg.minOps * 0.4);
     comSinais.sort((x, y) => Math.min(y.a.ac, y.b.ac) - Math.min(x.a.ac, x.b.ac));
     return { melhor: aprovadas[0] || null, aprovadas, todas: linhas, quase: comSinais[0] || null };
   }
@@ -339,7 +346,7 @@
 
   async function ciclo() {
     const novo = detectarAtivo();
-    const chave = [novo.titulo, cfg.chave, cfg.modo, cfg.estrategia, cfg.tfManual, cfg.expira, cfg.rigor, cfg.minAcerto, cfg.minOps].join('|');
+    const chave = [novo.titulo, cfg.chave, cfg.modo, cfg.estrategia, cfg.tfManual, cfg.expira, cfg.rigor, cfg.minAcerto, cfg.minOps, cfg.minExpira, cfg.minConfianca].join('|');
     if (chave !== chaveAtivo) { chaveAtivo = chave; await prepararAtivo(); return; }
     // ativo da tela ainda juntando velas: reavalia quando tiver o mínimo
     if (ativo && ativo.juntando) {
@@ -397,7 +404,7 @@
         rankingGeral.push({ titulo: alvo.titulo, alvo, melhor: r.melhor, quase: r.quase });
       } catch (e) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: e.message }); }
     }
-    rankingGeral.sort((x, y) => (y.melhor ? y.melhor.total.lucro : -1e9) - (x.melhor ? x.melhor.total.lucro : -1e9));
+    rankingGeral.sort((x, y) => (y.melhor ? y.melhor.conf : -1e9) - (x.melhor ? x.melhor.conf : -1e9));
     rodandoGeral = false;
     status('Ranking geral pronto', 'ok');
     desenhar(true);
@@ -446,7 +453,7 @@
       ultimaEscolha = Date.now();
       await rodarRankingGeral();
       const ocupados = await ativosDeOutrasJanelas();
-      const nota = (r) => (r.melhor ? r.melhor.b.ac + r.melhor.a.ac : -1);
+      const nota = (r) => (r.melhor ? r.melhor.conf : -1);
       const candidatos = (rankingGeral || []).filter((r) => r.melhor && !ocupados.includes(r.titulo)).sort((x, y) => nota(y) - nota(x));
       if (!candidatos.length) { status('Escolha automática: nenhum ativo livre com combinação aprovada agora', 'aviso'); return; }
       const atual = detectarAtivo();
@@ -574,11 +581,13 @@
   // cada ativo aprovado no ranking geral (fora o da tela) ganha um motor com a melhor combinação dele;
   // perto da virada do minuto pede as últimas velas a cada 2 s e, quando sai sinal, entra direto naquele ativo
   const vigia = {}; // simbolo -> { alvo, c, m, velas, carregando }
-  let vigiaInfo = '', rankingGeralEm = 0;
+  let vigiaInfo = '', rankingGeralEm = 0, rankingGeralCfg = '';
+  const filtroTxt = () => [cfg.minAcerto, cfg.minOps, cfg.minExpira, cfg.minConfianca].join('|');
   async function vigiarOutros() {
     // sem lista de aprovados (página acabou de abrir) ou lista com mais de 30 min: testa todos os ativos de novo
-    if (cfg.ligado && cfg.autoAtivo && !rodandoGeral && !trocando && ativo && !ativo.erro && rankingAtivos().length && (!rankingGeral || (!rankingGeral.length && Date.now() - (rankingGeralEm || 0) > 60000) || Date.now() - (rankingGeralEm || 0) > 30 * MINUTO)) {
+    if (cfg.ligado && cfg.autoAtivo && !rodandoGeral && !trocando && ativo && !ativo.erro && rankingAtivos().length && (!rankingGeral || rankingGeralCfg !== filtroTxt() || (!rankingGeral.length && Date.now() - (rankingGeralEm || 0) > 60000) || Date.now() - (rankingGeralEm || 0) > 30 * MINUTO)) {
       rankingGeralEm = Date.now();
+      rankingGeralCfg = filtroTxt();
       rodarRankingGeral().catch(() => {});
       return;
     }
@@ -631,6 +640,8 @@
     // várias operações podem ficar abertas; só espera a anterior terminar de ser digitada na Olymp
     for (let i = 0; i < 40 && operando; i++) await espera(500);
     if (operando) { registrar({ ...base, situacao: 'pulou: a Olymp não liberou a tela a tempo' }); return; }
+    const castigo = await emCastigo(A.titulo, c.nome);
+    if (castigo) { registrar({ ...base, situacao: `pulou: ${c.nome} perdeu 2 seguidas em ${A.titulo} (volta às ${hora(castigo).slice(0, 5)})` }); return; }
     operando = true;
     const id = ABA + '-' + sinal.t + '-' + c.est;
     const motivo = await reservar(id, sinal.dir, Date.now() + c.exp * MINUTO + 15000, c.est, A);
@@ -960,7 +971,7 @@
   // o que o app pode mudar
   const CHAVES_APP = ['ligado', 'autoAtivo', 'sempreLeitura', 'modo', 'modoValor', 'valor', 'percent', 'maxPerdasSeguidas', 'limitePerda',
     'metaGanhoDia', 'limitePerdaDia', 'maxAbertas', 'minAcerto', 'minOps', 'fecharModo', 'fecharAlvo', 'fecharManuais', 'expira', 'estrategia', 'tfManual',
-    'zerarEm', 'bancaInicial'];
+    'zerarEm', 'bancaInicial', 'minExpira', 'minConfianca'];
   const msg = (m) => new Promise((ok) => { try { if (!vivo()) return ok(null); chrome.runtime.sendMessage(m, (r) => { void chrome.runtime.lastError; ok(r || null); }); } catch (e) { ok(null); } });
   function cfgParaApp() { const o = {}; for (const k of CHAVES_APP) o[k] = cfg[k]; return o; }
   function enviarCfg() { msg({ tipo: 'controle-cfg', cfg: cfgParaApp(), rev: cfg.rev || 0 }); }
@@ -1016,7 +1027,7 @@
       // % de cada ativo no último teste (o app mostra a lista)
       ranking: (rankingGeral || []).map((r) => {
         const x = r.melhor || r.quase;
-        return { t: r.titulo, ok: !!r.melhor, erro: r.erro || '', ac: x ? Math.round(r.melhor ? x.total.ac : Math.min(x.a.ac, x.b.ac)) : null, n: x ? x.total.n : 0, nome: x ? x.nome : '', exp: x ? x.exp : null };
+        return { t: r.titulo, ok: !!r.melhor, erro: r.erro || '', conf: x && x.conf != null ? Math.round(x.conf) : null, ac: x ? Math.round(r.melhor ? x.total.ac : Math.min(x.a.ac, x.b.ac)) : null, n: x ? x.total.n : 0, nome: x ? x.nome : '', exp: x ? x.exp : null };
       }).slice(0, 30),
       minAcerto: cfg.minAcerto,
       vigiando: Object.values(vigia).map((w) => w.alvo.titulo),
@@ -1084,7 +1095,25 @@
     reg.situacao = reg.resultado == null ? 'empate' : reg.resultado > 0 ? 'ganhou' : 'perdeu';
     return fecharConta(reg);
   }
+  // trava ao vivo: estratégia que perde 2 seguidas na conta (no mesmo ativo) fica 1 hora sem operar
+  const chaveCastigo = (ativoNome, est) => ativoNome + '|' + est;
+  const lerCastigos = () => new Promise((ok) => chrome.storage.local.get('castigos', (r) => ok((r && r.castigos) || {})));
+  async function notarCastigo(reg) {
+    if (reg.resultado == null || !reg.ativo || !reg.estrategia) return;
+    const m = await lerCastigos();
+    const k = chaveCastigo(reg.ativo, reg.estrategia);
+    const x = m[k] || { seguidas: 0, ate: 0 };
+    x.seguidas = reg.resultado < 0 ? x.seguidas + 1 : 0;
+    if (x.seguidas >= 2) { x.ate = Date.now() + 60 * MINUTO; x.seguidas = 0; }
+    m[k] = x;
+    chrome.storage.local.set({ castigos: m });
+  }
+  async function emCastigo(ativoNome, estNome) {
+    const x = (await lerCastigos())[chaveCastigo(ativoNome, estNome)];
+    return x && x.ate > Date.now() ? x.ate : 0;
+  }
   async function fecharConta(reg) {
+    notarCastigo(reg);
     if (reg.maxFrac != null && reg.resultado != null && reg.valor > 0) guardarAmostra({ m: reg.maxFrac, f: reg.resultado / reg.valor, r: reg.retorno });
     sessao.resultado += reg.resultado || 0;
     await liberar(reg.id);
@@ -1290,6 +1319,8 @@ ${cfg.modoValor === 'percent' ? `<label>% da banca por operação<input data-k="
 <div class="rs-row"><label>Fechar antes no lucro<select data-k="fecharModo"><option value="auto"${cfg.fecharModo === 'auto' ? ' selected' : ''}>Automático (o robô decide)</option><option value="percent"${cfg.fecharModo === 'percent' ? ' selected' : ''}>% do lucro cheio</option><option value="valor"${cfg.fecharModo === 'valor' ? ' selected' : ''}>Valor (US$)</option></select></label>${cfg.fecharModo === 'auto' ? '' : `<label>Alvo (0 = nunca)<input data-k="fecharAlvo" value="${cfg.fecharAlvo}" inputmode="decimal"></label>`}</div>
 <label>Fechar antes também nas minhas ordens manuais<select data-k="fecharManuais"><option value="0"${!cfg.fecharManuais ? ' selected' : ''}>Não, só nas do robô</option><option value="1"${cfg.fecharManuais ? ' selected' : ''}>Sim, nas minhas também</option></select></label>
 <label>Máx. operações abertas na conta (0 = sem limite)<input data-k="maxAbertas" value="${cfg.maxAbertas}" inputmode="numeric"></label>
+<label>Expiração mínima (min, 0 = qualquer)<input data-k="minExpira" value="${cfg.minExpira}" inputmode="numeric"></label>
+<label>Confiança mínima (% garantido com 95% de certeza)<input data-k="minConfianca" value="${cfg.minConfianca}" inputmode="numeric"></label>
 <label>Acerto mínimo no teste (%)<input data-k="minAcerto" value="${cfg.minAcerto}" inputmode="numeric"></label>
 <label>Sinais mínimos no teste<input data-k="minOps" value="${cfg.minOps}" inputmode="numeric"></label>
 </div>
