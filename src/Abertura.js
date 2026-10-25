@@ -54,12 +54,7 @@ export default function Abertura({ saindo }) {
       <View style={s.linha}>
         <Vela cor={C.alta} altura={130} base={0} v={a} sobe />
         <Vela cor={C.baixa} altura={120} base={34} v={b} sobe={false} />
-        <View style={{ alignItems: 'center' }}>
-          <Animated.View style={[s.ponto, { opacity: ponto.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }), transform: [{ scale: ponto.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.15] }) }] }]}>
-            <View style={s.miolo} />
-          </Animated.View>
-          <Vela cor={C.alta} altura={160} base={70} v={c} sobe />
-        </View>
+        <Vela cor={C.alta} altura={160} base={70} v={c} sobe />
       </View>
     </Animated.View>
   );
