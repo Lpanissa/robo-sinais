@@ -10,11 +10,10 @@ function Vela({ cor, altura, base, v, sobe }) {
   const y = v.interpolate({ inputRange: [0, 1], outputRange: [sobe ? CURSO : -CURSO, 0] });
   const op = v.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 1, 1] });
   return (
-    <View style={{ width: 34, height: 170 + CURSO, justifyContent: 'flex-end', alignItems: 'center', marginBottom: base }}>
+    <View style={{ width: 34, height: altura * 0.56 + CURSO, justifyContent: 'flex-end', alignItems: 'center', marginBottom: base }}>
       <Animated.View style={{ alignItems: 'center', opacity: op, transform: [{ translateY: y }] }}>
-        <View style={{ width: 6, height: altura * 0.22, borderRadius: 3, backgroundColor: cor }} />
+        {/* só o corpo da vela, sem pavio */}
         <View style={{ width: 34, height: altura * 0.56, borderRadius: 7, backgroundColor: cor }} />
-        <View style={{ width: 6, height: altura * 0.22, borderRadius: 3, backgroundColor: cor }} />
       </Animated.View>
     </View>
   );
