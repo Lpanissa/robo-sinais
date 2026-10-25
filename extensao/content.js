@@ -19,7 +19,30 @@
     };
     setTimeout(tentar, 3000);
   }
-  const repetir = (fn, ms) => { const id = setInterval(() => { if (!vivo()) { clearInterval(id); aposentar(); return; } try { const r = fn(); if (r && r.catch) r.catch(() => {}); } catch (e) { if (!vivo()) { clearInterval(id); aposentar(); } } }, ms); return id; };
+  // relógio que não para com a janela escondida (tampa fechada, minimizada): além do timer normal, que o Chrome
+  // atrasa para até 1 vez por minuto em aba escondida, cada mensagem da conexão da Olymp (chega toda hora) empurra
+  // as tarefas que já venceram
+  const tarefas = [], pendentesT = new Set();
+  function rodarTarefa(t) {
+    if (t.morta) return;
+    if (!vivo()) { t.morta = true; aposentar(); return; }
+    t.prox = Date.now() + t.ms;
+    try { const r = t.fn(); if (r && r.catch) r.catch(() => {}); } catch (e) { if (!vivo()) { t.morta = true; aposentar(); } }
+  }
+  const repetir = (fn, ms) => {
+    const t = { fn, ms, prox: Date.now() + ms, morta: false };
+    tarefas.push(t);
+    const id = setInterval(() => { if (t.morta) { clearInterval(id); return; } if (Date.now() >= t.prox - 60) rodarTarefa(t); }, ms);
+    return id;
+  };
+  function soltarT(t) { if (t.feito) return; t.feito = true; pendentesT.delete(t); try { t.fn(); } catch (e) { /* ignora */ } }
+  const depois = (fn, ms) => { const t = { fn, ate: Date.now() + ms, feito: false }; pendentesT.add(t); setTimeout(() => soltarT(t), ms); return t; };
+  function bomba() {
+    const agora = Date.now();
+    for (const t of tarefas) if (!t.morta && agora >= t.prox) rodarTarefa(t);
+    for (const t of [...pendentesT]) if (agora >= t.ate) soltarT(t);
+  }
+  window.addEventListener('message', (ev) => { if (ev.source === window && ev.data && ev.data.__rsTique) bomba(); });
   // estratégias tiradas por enquanto (deram mais perda na conta real em 24/10): não entram no automático
   const TIRADAS = new Set(['esto_rsi', 'rsi_bb']);
   const RETORNO = 0.85; // retorno médio da Olymp no acerto, usado nas contas do teste
@@ -63,7 +86,7 @@
 
   // ---------- página da corretora ----------
   const q = (s) => document.querySelector(s);
-  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+  const espera = (ms) => new Promise((r) => depois(r, ms));
   const conta = () => (q('[data-test="account-balance-title"]')?.innerText || '').trim();
   const saldo = () => {
     const t = q('[data-test="account-balance-value"]')?.innerText || '';
@@ -573,7 +596,7 @@
       const id = 'a' + Math.random().toString(36).slice(2);
       respostasAbrir[id] = ok;
       window.postMessage({ __rsAbrir: { id, pair, dir, amount, duration, grupo: tipoConta() } }, '*');
-      setTimeout(() => { if (respostasAbrir[id]) { delete respostasAbrir[id]; ok({ ok: false, motivo: 'a página não respondeu' }); } }, 5000);
+      depois(() => { if (respostasAbrir[id]) { delete respostasAbrir[id]; ok({ ok: false, motivo: 'a página não respondeu' }); } }, 5000);
     });
   }
 
@@ -701,7 +724,7 @@
       reg.saldoAntes = antes;
       reg.limiteOlymp = Date.now() + durMin * MINUTO + 3 * MINUTO;
       // o resultado vem da Olymp quando ela fecha; isto é só a garantia se o aviso não chegar
-      setTimeout(() => conferir(reg), durMin * MINUTO + 8000);
+      depois(() => conferir(reg), durMin * MINUTO + 8000);
       guardarPendente({ id, hora: reg.hora, dir: sinal.dir, valor, retorno: reg.retorno, conta: reg.conta, estrategia: c.nome, entrada: sinal.entrada, fim: Date.now() + durMin * MINUTO, ativo: { titulo: A.titulo, fonte: A.fonte, simbolo: A.simbolo } });
     } catch (e) {
       liberar(id);
@@ -886,7 +909,7 @@
   // como a operação terminaria se fosse até o fim (pela cotação)
   function resultadoNoFim(reg) {
     // resultado oficial: o aviso de fechamento da própria Olymp
-    if (reg.dealId && reg.olympStatus == null && Date.now() < (reg.limiteOlymp || 0)) { setTimeout(() => conferir(reg), 15000); return; }
+    if (reg.dealId && reg.olympStatus == null && Date.now() < (reg.limiteOlymp || 0)) { depois(() => conferir(reg), 15000); return; }
     if (reg.situacao !== 'em andamento') return; // já conferida
     if (reg.olympStatus != null) {
       reg.resultado = reg.olympStatus === 'standoff' ? null : Math.round(reg.olympBc * 100) / 100;

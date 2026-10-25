@@ -63,11 +63,17 @@
     if (!/^(1|11|283|1097)$/.test(codigos)) amostra('ws-msg', url, dado, codigos);
   }
 
+  let ultimoTique = 0;
   const WS = window.WebSocket;
   function WSEscuta(url, prot) {
     const w = prot === undefined ? new WS(url) : new WS(url, prot);
     if (/olymptrade\.com\/otp/.test(String(url))) { ws = w; amostra('ws-abriu', url, '', ''); }
-    w.addEventListener('message', (ev) => lerMensagem(url, ev.data));
+    w.addEventListener('message', (ev) => {
+      // avisa o robô a cada mensagem (no máximo 4 por segundo): serve de relógio quando a aba está escondida
+      const agora = Date.now();
+      if (agora - ultimoTique > 250) { ultimoTique = agora; postar({ __rsTique: 1 }); }
+      lerMensagem(url, ev.data);
+    });
     const sendOrig = w.send.bind(w);
     w.send = (d) => {
       // pedido de abertura de negociação (e = 23): repassa par, direção e duração que a Olymp vai usar
