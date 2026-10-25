@@ -97,7 +97,13 @@ export default function ControleRobo() {
         <Text style={s.sub}>
           {online ? `${janelas.length} ${janelas.length === 1 ? 'janela' : 'janelas'} · ${janelas.map((j) => j.ativo || '?').join(', ')} · versão ${principal.versao || '?'}` : linha ? 'A Olymp precisa estar aberta no PC com o robô.' : ''}
         </Text>
-        {online && !!principal.parado && <Text style={[s.sub, { color: C.destaque }]}>Parado: {principal.parado}</Text>}
+        {online && principal.saldo != null && (
+          <View style={s.saldoBox}>
+            <Text style={s.saldoRot}>Saldo na Olymp {principal.conta === 'demo' ? '(demo)' : '(real)'}</Text>
+            <Text style={s.saldoV}>{principal.conta === 'demo' ? 'Đ ' : 'US$ '}{Number(principal.saldo).toFixed(2).replace('.', ',')}</Text>
+          </View>
+        )}
+        {online && !!principal.parado &&<Text style={[s.sub, { color: C.destaque }]}>Parado: {principal.parado}</Text>}
         {online && !principal.parado && !!principal.status && <Text style={s.sub} numberOfLines={2}>{principal.status}</Text>}
         <Pressable disabled={!linha || salvando} onPress={() => mudar({ ligado: !ligado })} style={[s.botaoGrande, { backgroundColor: ligado ? C.baixa : C.alta, opacity: !linha ? 0.5 : 1 }]}>
           <Text style={s.botaoGrandeTxt}>{ligado ? 'Desligar o robô' : 'Ligar o robô'}</Text>
@@ -173,6 +179,9 @@ const s = StyleSheet.create({
   card: { backgroundColor: C.painel, borderWidth: 1, borderColor: C.linha, borderRadius: 8, padding: 14, gap: 6 },
   linha: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   luz: { width: 10, height: 10, borderRadius: 5 },
+  saldoBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', backgroundColor: C.fundo, borderRadius: 6, paddingVertical: 8, paddingHorizontal: 10, marginTop: 2 },
+  saldoRot: { color: C.suave, fontSize: 13 },
+  saldoV: { color: C.texto, fontSize: 18, fontWeight: '700', fontFamily: MONO },
   titulo: { color: C.texto, fontSize: 16, fontWeight: '700' },
   sub: { color: C.suave, fontSize: 13 },
   botaoGrande: { borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginTop: 6 },
