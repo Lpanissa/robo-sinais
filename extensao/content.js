@@ -92,6 +92,13 @@
     const t = q('[data-test="account-balance-value"]')?.innerText || '';
     return parseFloat(t.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'));
   };
+  // saldo da tela lido do jeito certo em qualquer formato (19,34 / 19.34 / 1.234,56 / 1,234.56)
+  const saldoTela = () => {
+    const t = (q('[data-test="account-balance-value"]')?.innerText || '').replace(/[^\d,.-]/g, '');
+    const m = t.match(/^(-?[\d.,]*?)[.,](\d{1,2})$/);
+    const n = m ? parseFloat(m[1].replace(/[.,]/g, '') + '.' + m[2]) : parseFloat(t.replace(/[.,]/g, ''));
+    return isFinite(n) ? n : null;
+  };
   const campo = (teste) => q(`[data-test="${teste}"] input`);
   function digitar(input, valor) {
     const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
@@ -1037,6 +1044,7 @@
     const ct = String(conta() || '');
     msg({ tipo: 'controle-estado', aba: ABA, estado: {
       versao: (() => { try { return chrome.runtime.getManifest().version; } catch (e) { return ''; } })(), ligado: !!cfg.ligado, ativo: ativo ? ativo.titulo : '', status: statusTxt,
+      saldo: saldoTela(), saldoEm: Date.now(),
       conta: /demo/i.test(ct) ? 'demo' : 'real', hoje: Math.round(rd * 100) / 100, parado: contaGlobal.parado || '',
       abertas: sessao.ops.filter((x) => x.situacao === 'em andamento').length, fechar: fecharInfo || '',
       // % de cada ativo no último teste (o app mostra a lista)
