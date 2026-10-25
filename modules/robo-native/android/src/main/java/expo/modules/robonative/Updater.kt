@@ -11,7 +11,9 @@ import java.net.URL
 
 // Atualização dentro do próprio app: descobre versão nova, baixa e abre o instalador do Android.
 object Updater {
-  private const val BASE = "https://edith.lpanissa.workers.dev/robosinais"
+  // o repositório é público: a versão atual fica na release "app" do GitHub
+  private const val INFO = "https://api.github.com/repos/Lpanissa/robo-sinais/releases/tags/app"
+  private const val APK = "https://github.com/Lpanissa/robo-sinais/releases/download/app/robo-sinais.apk"
 
   private fun p(ctx: Context) = ctx.getSharedPreferences("robosinais", Context.MODE_PRIVATE)
 
@@ -21,13 +23,15 @@ object Updater {
   fun verificar(ctx: Context): String {
     val meu = p(ctx).getString("sha", "") ?: ""
     return try {
-      val c = URL("$BASE/update").openConnection() as HttpURLConnection
+      val c = URL(INFO).openConnection() as HttpURLConnection
       c.connectTimeout = 8000
       c.readTimeout = 8000
+      c.setRequestProperty("Accept", "application/vnd.github+json")
+      c.setRequestProperty("User-Agent", "PanissAsset")
       val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
-      val sha = j.optString("sha")
+      val sha = j.optString("target_commitish")
       val nova = if (meu.isNotEmpty() && meu != "dev" && sha.isNotEmpty() && sha != meu) sha else ""
-      JSONObject().put("sha", nova).put("notas", j.optString("notas")).toString()
+      JSONObject().put("sha", nova).put("notas", j.optString("body")).toString()
     } catch (e: Exception) { "{\"sha\":\"\",\"notas\":\"\"}" }
   }
 
@@ -40,9 +44,17 @@ object Updater {
       }
       val f = File(ctx.cacheDir, "RoboSinais-update.apk")
       f.delete()
-      val c = URL("$BASE/apk").openConnection() as HttpURLConnection
-      c.connectTimeout = 15000
-      c.readTimeout = 180000
+      // o GitHub manda para outro endereço (redirecionamento); segue até o arquivo
+      var url = URL(APK)
+      var c = url.openConnection() as HttpURLConnection
+      for (i in 0 until 5) {
+        c.instanceFollowRedirects = false
+        c.connectTimeout = 15000
+        c.readTimeout = 180000
+        c.setRequestProperty("User-Agent", "PanissAsset")
+        val code = c.responseCode
+        if (code in 300..399) { url = URL(url, c.getHeaderField("Location")); c.disconnect(); c = url.openConnection() as HttpURLConnection } else break
+      }
       if (c.responseCode !in 200..299) return "erro: download " + c.responseCode
       c.inputStream.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
       if (f.length() < 500_000) return "erro: arquivo pequeno demais"

@@ -1,1 +1,1 @@
-Novo nome no topo: PanissAsset. Toque numa ordem aberta para ver o gráfico ao vivo, com o preço de entrada, o tempo que falta e se está ganhando. A aba Sinais ao vivo saiu.
+Agora o app se atualiza sozinho: quando sai versão nova, ele baixa e abre a instalação, e depois mostra aqui o que mudou.
