@@ -59,18 +59,33 @@ async function enviarLote(linhas) {
 }
 let enviando = false;
 async function enviarFila(nova) {
-  const { filaOrdens = [] } = await chrome.storage.local.get('filaOrdens');
+  const { filaOrdens = [], cfg = {} } = await chrome.storage.local.get(['filaOrdens', 'cfg']);
   if (nova) { const i = filaOrdens.findIndex((x) => x.id === nova.id); if (i >= 0) filaOrdens[i] = nova; else filaOrdens.push(nova); }
-  await chrome.storage.local.set({ filaOrdens: filaOrdens.slice(-500) });
-  if (enviando || !filaOrdens.length) return;
+  // ordens de antes do "começar a contagem agora" não vão mais para o app
+  const zerado = cfg.zeradoEm || 0;
+  const fila = filaOrdens.filter((x) => !zerado || !x.hora || Date.parse(x.hora) >= zerado).slice(-500);
+  await chrome.storage.local.set({ filaOrdens: fila });
+  if (enviando || !fila.length) return;
   enviando = true;
-  try {
-    const lote = filaOrdens.slice(0, 100);
-    await enviarLote(lote);
+  const tirar = async (enviadas) => {
     const { filaOrdens: atual = [] } = await chrome.storage.local.get('filaOrdens');
-    const ids = new Map(lote.map((l) => [l.id, JSON.stringify(l)]));
+    const ids = new Map(enviadas.map((l) => [l.id, JSON.stringify(l)]));
     await chrome.storage.local.set({ filaOrdens: atual.filter((x) => ids.get(x.id) !== JSON.stringify(x)) });
-  } catch (e) { /* sem internet: tenta de novo na próxima ordem */ } finally { enviando = false; }
+  };
+  try {
+    const lote = fila.slice(0, 100);
+    try { await enviarLote(lote); await tirar(lote); }
+    catch (e) {
+      if (!/HTTP 4/.test(e.message)) throw e; // sem internet: tenta depois
+      // o banco recusou o lote: manda uma por uma; a que for recusada sozinha sai da fila (não trava as outras)
+      const feitas = [];
+      for (const l of lote) {
+        try { await enviarLote([l]); feitas.push(l); }
+        catch (e2) { if (/HTTP 4/.test(e2.message)) feitas.push(l); }
+      }
+      await tirar(feitas);
+    }
+  } catch (e) { /* sem internet: tenta de novo depois */ } finally { enviando = false; }
 }
 
 // ---------- controle pelo app do celular (tabela sinais_controle) ----------
