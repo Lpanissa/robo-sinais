@@ -682,7 +682,8 @@
       const durMin = ultimoPedido && clicouEm - ultimoPedido.em < 10000 && ultimoPedido.duracao ? ultimoPedido.duracao / 60 : c.exp;
       reg.duracao = durMin;
       reg.fim = clicouEm + durMin * MINUTO;
-      reg.entradaPreco = precoDaTela() ?? sinal.entrada; // para a linha de entrada no gráfico do app
+      // preço de entrada para o gráfico do app (no ativo de segundo plano o título da página é de outro ativo)
+      reg.entradaPreco = remoto ? sinal.entrada : (precoDaTela() ?? sinal.entrada);
       reg.situacao = 'em andamento';
       ultimaEntrada = Date.now();
       enviarOrdem(reg);
