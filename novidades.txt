@@ -1,1 +1,1 @@
-Agora o app se atualiza sozinho: quando sai versão nova, ele baixa e abre a instalação, e depois mostra aqui o que mudou.
+Novo quadro Ativos testados: mostra a porcentagem de acerto de cada ativo que o robô testou, e quais passaram no filtro.
