@@ -166,7 +166,10 @@
     const aprovadas = linhas.filter((r) => !TIRADAS.has(r.est) && r.a.n >= cfg.minOps * 0.6 && r.b.n >= cfg.minOps * 0.4 && r.a.ac >= cfg.minAcerto && r.b.ac >= cfg.minAcerto);
     aprovadas.sort((x, y) => y.total.lucro - x.total.lucro);
     linhas.sort((x, y) => y.total.lucro - x.total.lucro);
-    return { melhor: aprovadas[0] || null, aprovadas, todas: linhas };
+    // a que mais chegou perto (pior das duas partes do teste), com sinais suficientes: para mostrar a % mesmo sem aprovar
+    const comSinais = linhas.filter((r) => !TIRADAS.has(r.est) && r.a.n >= cfg.minOps * 0.6 && r.b.n >= cfg.minOps * 0.4);
+    comSinais.sort((x, y) => Math.min(y.a.ac, y.b.ac) - Math.min(x.a.ac, x.b.ac));
+    return { melhor: aprovadas[0] || null, aprovadas, todas: linhas, quase: comSinais[0] || null };
   }
 
   // ---------- estado ----------
@@ -391,7 +394,7 @@
         // ativo parado (mercado fechado): a última vela é antiga
         if (!v1.length || Date.now() - v1[v1.length - 1].t > 15 * MINUTO) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: 'mercado fechado' }); continue; }
         const r = await rankear({ 1: v1, 5: await pedirVelas(alvo, 5, 600) });
-        rankingGeral.push({ titulo: alvo.titulo, alvo, melhor: r.melhor });
+        rankingGeral.push({ titulo: alvo.titulo, alvo, melhor: r.melhor, quase: r.quase });
       } catch (e) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: e.message }); }
     }
     rankingGeral.sort((x, y) => (y.melhor ? y.melhor.total.lucro : -1e9) - (x.melhor ? x.melhor.total.lucro : -1e9));
@@ -914,6 +917,12 @@
       versao: (() => { try { return chrome.runtime.getManifest().version; } catch (e) { return ''; } })(), ligado: !!cfg.ligado, ativo: ativo ? ativo.titulo : '', status: statusTxt,
       conta: /demo/i.test(ct) ? 'demo' : 'real', hoje: Math.round(rd * 100) / 100, parado: contaGlobal.parado || '',
       abertas: sessao.ops.filter((x) => x.situacao === 'em andamento').length, fechar: fecharInfo || '',
+      // % de cada ativo no último teste (o app mostra a lista)
+      ranking: (rankingGeral || []).map((r) => {
+        const x = r.melhor || r.quase;
+        return { t: r.titulo, ok: !!r.melhor, erro: r.erro || '', ac: x ? Math.round(r.melhor ? x.total.ac : Math.min(x.a.ac, x.b.ac)) : null, n: x ? x.total.n : 0, nome: x ? x.nome : '', exp: x ? x.exp : null };
+      }).slice(0, 30),
+      minAcerto: cfg.minAcerto,
       saldo: (q('[data-test="account-balance-value"]')?.innerText || '').trim(),
       escuta: Object.values(escuta),
       recusas,
@@ -1138,7 +1147,7 @@
     else if (c.manual) comb = `<div class="rs-box">Manual: ${esc(descr(c))}</div>`;
     else comb = `<div class="rs-box"><b>${lista.length === 1 ? 'Operando 1 combinação' : `Operando ${lista.length} combinações`}</b> (empate em ${EMPATE.toFixed(0)}%)<br>${lista.map((x) => `${esc(descr(x))}${x.sempre ? ' <b style="color:#e5a93a">(sempre ligada)</b>' : ''}<br><span class="rs-mono" style="color:#8b97a8">teste ${pct(x.a.ac)} (${x.a.n}) · conferência ${pct(x.b.ac)} (${x.b.n})</span>`).join('<br>')}</div>`;
 
-    const geral = rankingGeral ? `<div class="rs-box"><b>Ranking geral</b> (melhor combinação de cada ativo)<br>${rankingGeral.map((r) => `${esc(r.titulo)}: ${r.erro ? 'erro' : r.melhor ? `${esc(descr(r.melhor))} · ${pct(r.melhor.total.ac)} em ${r.melhor.total.n}` : 'nenhuma aprovada'}`).join('<br>')}</div>` : '';
+    const geral = rankingGeral ? `<div class="rs-box"><b>Ranking geral</b> (melhor combinação de cada ativo)<br>${rankingGeral.map((r) => `${esc(r.titulo)}: ${r.erro ? 'erro' : r.melhor ? `${esc(descr(r.melhor))} · ${pct(r.melhor.total.ac)} em ${r.melhor.total.n}` : r.quase ? `não passou (melhor: ${pct(Math.min(r.quase.a.ac, r.quase.b.ac))} · ${esc(r.quase.nome)})` : 'poucos sinais'}`).join('<br>')}</div>` : '';
 
     const topo = `
 <div class="rs-st"><span class="rs-dot" style="background:${cor}"></span><span>${esc(statusTxt)}</span></div>
