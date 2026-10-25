@@ -939,7 +939,11 @@
   let estudoInZone = { em: 0, rodando: false, linhas: [] };
   async function estudarInZone() {
     if (estudoInZone.rodando) return;
-    const lista = rankingAtivos();
+    // todos os ativos abertos (não só os 60 do teste normal), começando pelos índices, onde o InZone costuma ir melhor
+    const ordem = ['index', 'otc', 'currency', 'commodity', 'crypto', 'stock'];
+    const lista = ativosOlymp.filter((a) => !a.fechado && ordem.includes(a.grupo))
+      .sort((x, y) => ordem.indexOf(x.grupo) - ordem.indexOf(y.grupo))
+      .map((a) => ({ titulo: a.titulo, fonte: 'olymp', simbolo: a.id, busca: a.titulo }));
     if (!lista.length) return;
     estudoInZone.rodando = true;
     const linhas = [];
@@ -1124,7 +1128,7 @@
       }).slice(0, 30),
       minAcerto: cfg.minAcerto,
       vigiando: Object.values(vigia).map((w) => w.alvo.titulo),
-      inzone: { em: estudoInZone.em, rodando: estudoInZone.rodando, top: estudoInZone.linhas.filter((x) => !x.erro).slice(0, 25), erros: estudoInZone.linhas.filter((x) => x.erro).length },
+      inzone: { em: estudoInZone.em, rodando: estudoInZone.rodando, top: estudoInZone.linhas.filter((x) => !x.erro).slice(0, 40), asia: estudoInZone.linhas.filter((x) => /asia/i.test(x.t)), erros: estudoInZone.linhas.filter((x) => x.erro).length },
       // últimas tentativas (inclusive as que pularam ou falharam), para entender por que não entrou
       ultimas: sessao.ops.slice(0, 8).map((r) => ({ h: hora(r.hora || Date.now()).slice(0, 5), a: r.ativo || '', e: r.estrategia || '', d: r.dir || '', s: String(r.situacao || '').slice(0, 140) })),
       saldo: (q('[data-test="account-balance-value"]')?.innerText || '').trim(),
