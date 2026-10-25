@@ -930,6 +930,51 @@
     }
   }
   repetir(() => vigiarFechamento(), 700);
+  // ---------- estudo do InZone (só teste, não opera) ----------
+  // InZone: ganha se o preço fechar dentro de ±faixa do preço de entrada. Testa no histórico de velas curtas:
+  // vela de 15 s ≈ operação de 15 s (abertura = entrada, fechamento = fim). "Calmo" = as 8 velas anteriores
+  // se mexeram pouco (os 30% mais parados do ativo), que é quando a Olymp diz que o InZone funciona.
+  const FAIXAS_INZONE = [0.001, 0.002, 0.005]; // em %
+  const DURACOES_INZONE = [15, 30, 60]; // segundos
+  let estudoInZone = { em: 0, rodando: false, linhas: [] };
+  async function estudarInZone() {
+    if (estudoInZone.rodando) return;
+    const lista = rankingAtivos();
+    if (!lista.length) return;
+    estudoInZone.rodando = true;
+    const linhas = [];
+    try {
+      for (const a of lista) {
+        for (const dur of DURACOES_INZONE) {
+          let v = [];
+          try { v = await pedirVelas(a, dur / 60, 1200); } catch (e) { v = []; }
+          await espera(250);
+          if (v.length < 200) { linhas.push({ t: a.titulo, dur, erro: v.length ? 'poucas velas' : 'sem velas' }); continue; }
+          const mov = v.map((k) => (k.o > 0 ? Math.abs(k.c - k.o) / k.o * 100 : 0));
+          const media8 = mov.map((_, i) => (i < 8 ? null : mov.slice(i - 8, i).reduce((x, y) => x + y, 0) / 8));
+          const ordenadas = media8.filter((x) => x != null).sort((x, y) => x - y);
+          const corte = ordenadas[Math.floor(ordenadas.length * 0.3)];
+          for (const fx of FAIXAS_INZONE) {
+            let n = 0, ok = 0, nc = 0, okc = 0;
+            for (let i = 8; i < v.length; i++) {
+              const dentro = mov[i] <= fx;
+              n++; if (dentro) ok++;
+              if (media8[i] <= corte) { nc++; if (dentro) okc++; }
+            }
+            const ac = n ? 100 * ok / n : 0, acc = nc ? 100 * okc / nc : 0;
+            linhas.push({ t: a.titulo, dur, faixa: fx, n, ac: Math.round(ac * 10) / 10, nCalmo: nc, acCalmo: Math.round(acc * 10) / 10, confCalmo: Math.round(confianca({ n: nc, ac: acc }) * 10) / 10 });
+          }
+        }
+      }
+      linhas.sort((x, y) => (y.confCalmo || -1) - (x.confCalmo || -1));
+      estudoInZone = { em: Date.now(), rodando: false, linhas };
+      try { chrome.storage.local.set({ estudoInZone }); } catch (e) {}
+      enviarEstado();
+    } finally { estudoInZone.rodando = false; }
+  }
+  setTimeout(() => { estudarInZone().catch(() => {}); }, 90000);
+  repetir(() => estudarInZone(), 60 * MINUTO);
+
   // preço do momento de um ativo: o da tela (ativo principal) ou o dos ativos vigiados em segundo plano
   function precoAtualDe(nome) {
     if (ativo && ativo.titulo === nome) {
@@ -1079,6 +1124,7 @@
       }).slice(0, 30),
       minAcerto: cfg.minAcerto,
       vigiando: Object.values(vigia).map((w) => w.alvo.titulo),
+      inzone: { em: estudoInZone.em, rodando: estudoInZone.rodando, top: estudoInZone.linhas.filter((x) => !x.erro).slice(0, 25), erros: estudoInZone.linhas.filter((x) => x.erro).length },
       // últimas tentativas (inclusive as que pularam ou falharam), para entender por que não entrou
       ultimas: sessao.ops.slice(0, 8).map((r) => ({ h: hora(r.hora || Date.now()).slice(0, 5), a: r.ativo || '', e: r.estrategia || '', d: r.dir || '', s: String(r.situacao || '').slice(0, 140) })),
       saldo: (q('[data-test="account-balance-value"]')?.innerText || '').trim(),
