@@ -346,6 +346,11 @@
       return;
     }
     const lista = combinacoes();
+    if (ativo && !ativo.erro && !buscando && !lista.length) {
+      // nada aprovado neste ativo: diz o motivo (aparece no painel e no app) em vez de ficar calado
+      status(`${ativo.titulo}: nenhuma estratégia passou de ${cfg.minAcerto}% com ${cfg.minOps} sinais no teste. ${cfg.autoAtivo ? 'Procurando outro ativo.' : 'Sem entrada aqui.'}`, 'aviso');
+      return;
+    }
     if (!ativo || ativo.erro || !lista.length || buscando) return;
     // refaz o teste a cada hora
     if (cfg.modo !== 'manual' && Date.now() - rankingEm > 60 * MINUTO) { chaveAtivo = ''; return; }
