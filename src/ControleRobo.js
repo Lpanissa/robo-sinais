@@ -104,6 +104,22 @@ export default function ControleRobo() {
         {!!erro && <Text style={[s.sub, { color: C.destaque }]}>{erro}</Text>}
       </View>
 
+      {online && Array.isArray(principal.ranking) && principal.ranking.length > 0 && (
+        <View style={s.card}>
+          <Text style={s.titulo}>Ativos testados</Text>
+          <Text style={s.sub}>Acerto da melhor estratégia de cada ativo no teste. Só opera o que passa de {principal.minAcerto ?? cfg.minAcerto}%.</Text>
+          {principal.ranking.map((r) => (
+            <View key={r.t} style={[s.linha, { justifyContent: 'space-between', paddingVertical: 6, borderTopWidth: 1, borderTopColor: C.linha }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: C.texto, fontSize: 14, fontWeight: '700' }}>{r.t}</Text>
+                <Text style={s.sub} numberOfLines={1}>{r.erro ? r.erro : r.nome ? `${r.nome}${r.exp ? ` · ${r.exp} min` : ''} · ${r.n} sinais` : 'poucos sinais para testar'}</Text>
+              </View>
+              <Text style={{ fontFamily: MONO, fontSize: 15, fontWeight: '700', color: r.ok ? C.alta : C.suave }}>{r.ac == null ? '–' : `${r.ac}%`}{r.ok ? '' : r.ac == null ? '' : ' ✕'}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       <Pressable onPress={() => setAbrirAjustes(!abrirAjustes)} style={[s.card, s.linha, { justifyContent: 'space-between' }]}>
         <Text style={s.titulo}>Configurações do robô</Text>
         <Text style={[s.titulo, { color: C.suave }]}>{abrirAjustes ? '–' : '+'}</Text>
