@@ -1,1 +1,1 @@
-Abertura nova: só as três velas, sem pavio e sem a bolinha.
+A lista de Ativos testados agora fica recolhida, mostrando só o ativo atual. Toque na setinha para ver todos.
