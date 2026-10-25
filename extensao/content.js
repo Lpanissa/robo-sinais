@@ -577,7 +577,7 @@
   let vigiaInfo = '', rankingGeralEm = 0;
   async function vigiarOutros() {
     // sem lista de aprovados (página acabou de abrir) ou lista com mais de 30 min: testa todos os ativos de novo
-    if (cfg.ligado && cfg.autoAtivo && !rodandoGeral && !trocando && ativo && !ativo.erro && (!rankingGeral || Date.now() - (rankingGeralEm || 0) > 30 * MINUTO)) {
+    if (cfg.ligado && cfg.autoAtivo && !rodandoGeral && !trocando && ativo && !ativo.erro && rankingAtivos().length && (!rankingGeral || (!rankingGeral.length && Date.now() - (rankingGeralEm || 0) > 60000) || Date.now() - (rankingGeralEm || 0) > 30 * MINUTO)) {
       rankingGeralEm = Date.now();
       rodarRankingGeral().catch(() => {});
       return;
