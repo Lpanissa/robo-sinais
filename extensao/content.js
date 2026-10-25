@@ -640,8 +640,8 @@
     // várias operações podem ficar abertas; só espera a anterior terminar de ser digitada na Olymp
     for (let i = 0; i < 40 && operando; i++) await espera(500);
     if (operando) { registrar({ ...base, situacao: 'pulou: a Olymp não liberou a tela a tempo' }); return; }
-    const castigo = await emCastigo(A.titulo, c.nome);
-    if (castigo) { registrar({ ...base, situacao: `pulou: ${c.nome} perdeu 2 seguidas em ${A.titulo} (volta às ${hora(castigo).slice(0, 5)})` }); return; }
+    const crit = await criterioAoVivo(A.titulo, c);
+    if (crit) { registrar({ ...base, situacao: 'pulou: ' + crit }); return; }
     operando = true;
     const id = ABA + '-' + sinal.t + '-' + c.est;
     const motivo = await reservar(id, sinal.dir, Date.now() + c.exp * MINUTO + 15000, c.est, A);
@@ -1095,25 +1095,31 @@
     reg.situacao = reg.resultado == null ? 'empate' : reg.resultado > 0 ? 'ganhou' : 'perdeu';
     return fecharConta(reg);
   }
-  // trava ao vivo: estratégia que perde 2 seguidas na conta (no mesmo ativo) fica 1 hora sem operar
-  const chaveCastigo = (ativoNome, est) => ativoNome + '|' + est;
-  const lerCastigos = () => new Promise((ok) => chrome.storage.local.get('castigos', (r) => ok((r && r.castigos) || {})));
-  async function notarCastigo(reg) {
+  // critério ao vivo: o resultado real de cada estratégia (no mesmo ativo) entra na conta da confiança
+  // com peso 3. Perdeu ao vivo, a confiança cai e ela só volta a operar se ainda passar do mínimo; sem tempo fixo parado.
+  const PESO_VIVO = 3;
+  const chaveVivo = (ativoNome, est) => ativoNome + '|' + est;
+  const lerVivo = () => new Promise((ok) => chrome.storage.local.get('aoVivoEst', (r) => ok((r && r.aoVivoEst) || {})));
+  async function notarAoVivo(reg) {
     if (reg.resultado == null || !reg.ativo || !reg.estrategia) return;
-    const m = await lerCastigos();
-    const k = chaveCastigo(reg.ativo, reg.estrategia);
-    const x = m[k] || { seguidas: 0, ate: 0 };
-    x.seguidas = reg.resultado < 0 ? x.seguidas + 1 : 0;
-    if (x.seguidas >= 2) { x.ate = Date.now() + 60 * MINUTO; x.seguidas = 0; }
-    m[k] = x;
-    chrome.storage.local.set({ castigos: m });
+    const m = await lerVivo();
+    const k = chaveVivo(reg.ativo, reg.estrategia);
+    m[k] = [...(m[k] || []), reg.resultado > 0 ? 1 : 0].slice(-10); // as 10 últimas
+    chrome.storage.local.set({ aoVivoEst: m });
   }
-  async function emCastigo(ativoNome, estNome) {
-    const x = (await lerCastigos())[chaveCastigo(ativoNome, estNome)];
-    return x && x.ate > Date.now() ? x.ate : 0;
+  async function criterioAoVivo(ativoNome, c) {
+    const t = c && c.total;
+    if (!t || !t.n || !cfg.minConfianca) return '';
+    const r = (await lerVivo())[chaveVivo(ativoNome, c.nome)] || [];
+    if (!r.length) return '';
+    const g = r.filter((x) => x).length, n = t.n + PESO_VIVO * r.length;
+    const ac = (100 * (t.n * t.ac / 100 + PESO_VIVO * g)) / n;
+    const conf = confianca({ n, ac });
+    if (conf >= cfg.minConfianca) return '';
+    return `${c.nome} em ${ativoNome}: ao vivo ${g}/${r.length}, confiança caiu para ${Math.round(conf)}% (mínimo ${cfg.minConfianca}%)`;
   }
   async function fecharConta(reg) {
-    notarCastigo(reg);
+    notarAoVivo(reg);
     if (reg.maxFrac != null && reg.resultado != null && reg.valor > 0) guardarAmostra({ m: reg.maxFrac, f: reg.resultado / reg.valor, r: reg.retorno });
     sessao.resultado += reg.resultado || 0;
     await liberar(reg.id);
