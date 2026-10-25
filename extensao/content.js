@@ -908,14 +908,6 @@
   // resultado pela cotação (não pelo saldo, que mistura as operações das outras janelas)
   // como a operação terminaria se fosse até o fim (pela cotação)
   function resultadoNoFim(reg) {
-    // resultado oficial: o aviso de fechamento da própria Olymp
-    if (reg.dealId && reg.olympStatus == null && Date.now() < (reg.limiteOlymp || 0)) { depois(() => conferir(reg), 15000); return; }
-    if (reg.situacao !== 'em andamento') return; // já conferida
-    if (reg.olympStatus != null) {
-      reg.resultado = reg.olympStatus === 'standoff' ? null : Math.round(reg.olympBc * 100) / 100;
-      reg.situacao = reg.olympStatus === 'standoff' ? 'empate' : reg.resultado > 0 ? 'ganhou' : 'perdeu';
-      return fecharConta(reg);
-    }
     const s = reg.sinal;
     let res = s.res;
     if (res !== 'acerto' && res !== 'erro') {
@@ -1106,6 +1098,19 @@
       enviarOrdem(reg);
       desenhar();
       return;
+    }
+    // resultado oficial: o aviso de fechamento da própria Olymp (espera até 3 min depois do fim)
+    if (reg.dealId && reg.olympStatus == null && Date.now() < (reg.limiteOlymp || 0)) { depois(() => conferir(reg), 15000); return; }
+    if (reg.situacao !== 'em andamento') return; // já conferida
+    if (reg.olympStatus != null) {
+      const st = String(reg.olympStatus).toLowerCase(), bc = Number(reg.olympBc) || 0;
+      if (/standoff|draw|equal|tie/.test(st)) { reg.resultado = 0; reg.situacao = 'empate'; }
+      else if (/win/.test(st) || bc > 0) {
+        // a Olymp pode mandar só o lucro ou o lucro com a entrada devolvida
+        const lucro = bc > 0 ? (bc > reg.valor * 1.05 ? bc - reg.valor : bc) : reg.valor * reg.retorno;
+        reg.resultado = Math.round(lucro * 100) / 100; reg.situacao = 'ganhou';
+      } else { reg.resultado = -reg.valor; reg.situacao = 'perdeu'; }
+      return fecharConta(reg);
     }
     const s = reg.sinal;
     let res = s.res;
