@@ -574,9 +574,15 @@
   // cada ativo aprovado no ranking geral (fora o da tela) ganha um motor com a melhor combinação dele;
   // perto da virada do minuto pede as últimas velas a cada 2 s e, quando sai sinal, entra direto naquele ativo
   const vigia = {}; // simbolo -> { alvo, c, m, velas, carregando }
-  let vigiaInfo = '';
+  let vigiaInfo = '', rankingGeralEm = 0;
   async function vigiarOutros() {
-    if (!cfg.ligado || !cfg.autoAtivo || !rankingGeral || !ativo || ativo.erro) { vigiaInfo = ''; return; }
+    // sem lista de aprovados (página acabou de abrir) ou lista com mais de 30 min: testa todos os ativos de novo
+    if (cfg.ligado && cfg.autoAtivo && !rodandoGeral && !trocando && ativo && !ativo.erro && (!rankingGeral || Date.now() - (rankingGeralEm || 0) > 30 * MINUTO)) {
+      rankingGeralEm = Date.now();
+      rodarRankingGeral().catch(() => {});
+      return;
+    }
+    if (!cfg.ligado || !cfg.autoAtivo || !rankingGeral || rodandoGeral || !ativo || ativo.erro) { vigiaInfo = ''; return; }
     const ocupados = await ativosDeOutrasJanelas();
     const aprovados = rankingGeral.filter((r) => r.melhor && r.alvo && r.alvo.simbolo && r.titulo !== ativo.titulo && !ocupados.includes(r.titulo)).slice(0, 8);
     const quero = new Set(aprovados.map((r) => r.alvo.simbolo));
