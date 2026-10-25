@@ -181,15 +181,18 @@
     return 100 * (p + z * z / (2 * n) - z * Math.sqrt((p * (1 - p) + z * z / (4 * n)) / n)) / (1 + z * z / n);
   }
   // escolhe numa parte do histórico (60%) e confere na parte seguinte (40%), para não escolher por sorte
-  async function rankear(porTf) {
+  async function rankear(porTf, opc = {}) {
     const linhas = [];
     for (const tf of Object.keys(porTf)) {
       const v = porTf[tf];
       if (!v || v.length < 300) continue;
       const corte = Math.floor(v.length * 0.6);
-      const todos = await sinaisDoHistorico(v, cfg.rigor);
-      for (const est of ESTRATEGIAS) {
-        const sinais = todos[est.id];
+      let todos = opc.cache && opc.cache[tf];
+      if (!todos) { todos = await sinaisDoHistorico(v, cfg.rigor); if (opc.cache) opc.cache[tf] = todos; }
+      const lista = opc.soExtras ? [] : ESTRATEGIAS.map((e) => ({ id: e.id, nome: e.nome, sinais: todos[e.id] }));
+      for (const x of opc.extras || []) lista.push({ id: x.id, nome: x.nome, sinais: x.sinais(v) });
+      for (const est of lista) {
+        const sinais = opc.filtro ? est.sinais.filter((sg) => opc.filtro(v, sg.i, sg.dir)) : est.sinais;
         const exps = +tf === 1 ? [1, 2, 3, 5] : [1, 2, 3];
         for (const x of exps) {
           const a = medir(v, sinais, x, 0, corte);
@@ -417,10 +420,45 @@
     buscando = false;
   }
 
+  // ---------- estudo do Canal Donchian (só teste no histórico, não muda as operações) ----------
+  // canal de N velas: máxima mais alta e mínima mais baixa das N velas ANTERIORES
+  function canal(v, i, n) {
+    if (i < n) return null;
+    let hi = -Infinity, lo = Infinity;
+    for (let j = i - n; j < i; j++) { if (v[j].h > hi) hi = v[j].h; if (v[j].l < lo) lo = v[j].l; }
+    return { hi, lo, meio: (hi + lo) / 2 };
+  }
+  // A: não entra contra um rompimento recente (nas últimas 3 velas o preço furou o canal de 30 para o outro lado)
+  const filtroRompeu = (v, i, dir) => {
+    for (let j = Math.max(30, i - 2); j <= i; j++) {
+      const c = canal(v, j, 30); if (!c) return true;
+      if (dir === 'up' && v[j].l < c.lo) return false;
+      if (dir === 'down' && v[j].h > c.hi) return false;
+    }
+    return true;
+  };
+  // B: só entra do lado da tendência (compra acima do meio do canal de 30, venda abaixo)
+  const filtroLado = (v, i, dir) => { const c = canal(v, i, 30); if (!c) return true; return dir === 'up' ? v[i].c >= c.meio : v[i].c <= c.meio; };
+  // estratégia nova: entra a favor do rompimento do canal (fechou acima da máxima / abaixo da mínima das N anteriores)
+  const rompimento = (n) => ({ id: 'donchian' + n, nome: 'Rompimento do Canal Donchian ' + n, sinais: (v) => {
+    const out = [];
+    for (let i = n; i < v.length; i++) { const c = canal(v, i, n); if (v[i].c > c.hi) out.push({ i, dir: 'up' }); else if (v[i].c < c.lo) out.push({ i, dir: 'down' }); }
+    return out;
+  } });
+  let estudoDonchian = { em: 0, linhas: [] }, donchianNovo = [];
+  const resumoComb = (m) => (m ? { nome: m.nome, exp: m.exp, n: m.total.n, ac: Math.round(m.total.ac * 10) / 10, conf: Math.round(m.conf * 10) / 10 } : null);
+  async function estudarDonchian(titulo, porTf, cache, base) {
+    const A = await rankear(porTf, { cache, filtro: filtroRompeu });
+    const B = await rankear(porTf, { cache, filtro: filtroLado });
+    const R = await rankear(porTf, { cache, soExtras: true, extras: [rompimento(20), rompimento(30)] });
+    donchianNovo.push({ t: titulo, base: resumoComb(base.melhor), nBase: base.aprovadas.length, A: resumoComb(A.melhor), nA: A.aprovadas.length, B: resumoComb(B.melhor), nB: B.aprovadas.length, R: resumoComb(R.melhor), nR: R.aprovadas.length, Rq: resumoComb(R.quase) });
+  }
+
   async function rodarRankingGeral() {
     if (rodandoGeral) return;
     rodandoGeral = true;
     rankingGeral = [];
+    donchianNovo = [];
     const lista = rankingAtivos();
     if (!lista.length) status('Ranking geral: esperando a lista de ativos da Olymp...', 'aviso');
     for (const alvo of lista) {
@@ -430,11 +468,16 @@
         const v1 = await pedirVelas(alvo, 1, 1200);
         // ativo parado (mercado fechado): a última vela é antiga
         if (!v1.length || Date.now() - v1[v1.length - 1].t > 15 * MINUTO) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: 'mercado fechado' }); continue; }
-        const r = await rankear({ 1: v1, 5: await pedirVelas(alvo, 5, 600) });
+        const porTf = { 1: v1, 5: await pedirVelas(alvo, 5, 600) };
+        const cache = {};
+        const r = await rankear(porTf, { cache });
         rankingGeral.push({ titulo: alvo.titulo, alvo, melhor: r.melhor, quase: r.quase });
+        try { await estudarDonchian(alvo.titulo, porTf, cache, r); } catch (e) { /* só estudo */ }
       } catch (e) { rankingGeral.push({ titulo: alvo.titulo, alvo, erro: e.message }); }
     }
     rankingGeral.sort((x, y) => (y.melhor ? y.melhor.conf : -1e9) - (x.melhor ? x.melhor.conf : -1e9));
+    estudoDonchian = { em: Date.now(), linhas: donchianNovo };
+    try { chrome.storage.local.set({ estudoDonchian }); } catch (e) {}
     rodandoGeral = false;
     status('Ranking geral pronto', 'ok');
     desenhar(true);
@@ -1128,6 +1171,7 @@
       }).slice(0, 30),
       minAcerto: cfg.minAcerto,
       vigiando: Object.values(vigia).map((w) => w.alvo.titulo),
+      donchian: { em: estudoDonchian.em, linhas: estudoDonchian.linhas },
       inzone: { em: estudoInZone.em, rodando: estudoInZone.rodando, top: estudoInZone.linhas.filter((x) => !x.erro).slice(0, 40), asia: estudoInZone.linhas.filter((x) => /asia/i.test(x.t)), erros: estudoInZone.linhas.filter((x) => x.erro).length },
       // últimas tentativas (inclusive as que pularam ou falharam), para entender por que não entrou
       ultimas: sessao.ops.slice(0, 8).map((r) => ({ h: hora(r.hora || Date.now()).slice(0, 5), a: r.ativo || '', e: r.estrategia || '', d: r.dir || '', s: String(r.situacao || '').slice(0, 140) })),
