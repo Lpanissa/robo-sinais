@@ -9,6 +9,7 @@
   const pedidos = {};     // uuid -> pedido de velas do robô
   const ativos = {};      // id -> { id, titulo, grupo, fechado }
   let ativosEm = 0;
+  let modelo = null;      // último pedido de abertura (e = 23) que a própria Olymp mandou: serve de modelo para abrir em outro ativo
 
   const postar = (m) => { try { window.postMessage(m, '*'); } catch (e) { /* ignora */ } };
 
@@ -71,7 +72,12 @@
     w.send = (d) => {
       // pedido de abertura de negociação (e = 23): repassa par, direção e duração que a Olymp vai usar
       if (typeof d === 'string' && d.includes('"e":23')) {
-        try { for (const x of JSON.parse(d)) if (x.e === 23 && x.d && x.d[0]) postar({ __rsDeal: true, tipo: 'pedido', pair: x.d[0].pair, dir: x.d[0].dir, amount: x.d[0].amount, duracao: x.d[0].duration }); } catch (e) { /* ignora */ }
+        try {
+          for (const x of JSON.parse(d)) if (x.e === 23 && x.d && x.d[0]) {
+            postar({ __rsDeal: true, tipo: 'pedido', pair: x.d[0].pair, dir: x.d[0].dir, amount: x.d[0].amount, duracao: x.d[0].duration });
+            if (!x.__rs) { modelo = JSON.parse(JSON.stringify(x)); postar({ __rsModelo: true, modelo }); }
+          }
+        } catch (e) { /* ignora */ }
       }
       if (typeof d === 'string' && !/"__rs/.test(d)) { let c = ''; try { c = JSON.parse(d).map((x) => x.e).join(','); } catch (e) { c = '?'; } amostra('ws-envio', url, d, c); }
       return sendOrig(d);
@@ -95,5 +101,21 @@
       setTimeout(() => { if (pedidos[uuid]) { delete pedidos[uuid]; postar({ __rsVelas: true, id, ok: false, erro: 'a Olymp não respondeu' }); } }, 10000);
     }
     if (m.__rsPedirAtivos) postar({ __rsAtivos: true, lista: Object.values(ativos), em: ativosEm });
+    // modelo guardado de outra vez (o robô devolve ao carregar a página)
+    if (m.__rsGuardarModelo && !modelo) modelo = m.__rsGuardarModelo;
+    // abrir negociação em qualquer ativo sem mudar a tela: copia o pedido que a própria Olymp usa e troca ativo, direção, valor e duração
+    if (m.__rsAbrir) {
+      const { id, pair, dir, amount, duration, grupo } = m.__rsAbrir;
+      if (!ws || ws.readyState !== 1) { postar({ __rsAbrirResp: true, id, ok: false, motivo: 'conexão da Olymp fechada' }); return; }
+      if (!modelo) { postar({ __rsAbrirResp: true, id, ok: false, motivo: 'sem modelo de ordem (falta uma entrada pela tela primeiro)' }); return; }
+      // trava: o modelo guarda a conta (demo/real); nunca usa o modelo de uma conta na outra
+      const gm = String((modelo.d && modelo.d[0] && modelo.d[0].group) || '').toLowerCase();
+      if (!gm || !grupo || gm !== grupo) { postar({ __rsAbrirResp: true, id, ok: false, motivo: 'modelo de ordem é de outra conta (' + (gm || '?') + '); falta uma entrada pela tela nesta conta' }); return; }
+      const x = JSON.parse(JSON.stringify(modelo));
+      x.uuid = 'rs' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+      Object.assign(x.d[0], { pair, dir, amount, duration });
+      ws.send(JSON.stringify([x]));
+      postar({ __rsAbrirResp: true, id, ok: true });
+    }
   });
 })();

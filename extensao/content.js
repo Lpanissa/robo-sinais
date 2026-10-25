@@ -493,7 +493,8 @@
     return cg;
   }
   // tenta reservar uma vaga para operar; devolve o motivo se não puder
-  async function reservar(id, dir, ate, est) {
+  async function reservar(id, dir, ate, est, alvo) {
+    const A = alvo || ativo;
     await espera(Math.floor(Math.random() * 400)); // evita duas janelas reservarem no mesmo instante
     const cg = limparVencidas(await lerConta());
     if (cg.parado) return 'robô parado na conta: ' + cg.parado;
@@ -501,11 +502,11 @@
     if (cfg.maxAbertas > 0 && abertas.length >= cfg.maxAbertas) return `já há ${abertas.length} operações abertas na conta`;
     // não repete a mesma aposta: a mesma estratégia no mesmo ativo e direção só entra de novo quando a anterior terminar,
     // e no mesmo ativo e direção entra no máximo uma ordem por minuto (duas estratégias concordando não viram duas ordens)
-    const mesma = abertas.filter((a) => a.ativo === ativo.titulo && a.dir === dir);
+    const mesma = abertas.filter((a) => a.ativo === A.titulo && a.dir === dir);
     if (mesma.some((a) => a.est === est)) return 'já tem uma ordem aberta desta estratégia nesta direção';
     if (mesma.some((a) => a.desde && Date.now() - a.desde < 60000)) return 'já entrou neste ativo e direção há menos de 1 minuto';
-    if (cfg.maxAbertas > 0 && ativo.fonte === 'cripto' && abertas.some((a) => a.cripto && a.dir === dir && a.ativo !== ativo.titulo)) return 'já há cripto aberta na mesma direção';
-    cg.abertas = { ...cg.abertas, [id]: { ativo: ativo.titulo, cripto: ativo.fonte === 'cripto', dir, ate, aba: ABA, est, desde: Date.now() } };
+    if (cfg.maxAbertas > 0 && A.fonte === 'cripto' && abertas.some((a) => a.cripto && a.dir === dir && a.ativo !== A.titulo)) return 'já há cripto aberta na mesma direção';
+    cg.abertas = { ...cg.abertas, [id]: { ativo: A.titulo, cripto: A.fonte === 'cripto', dir, ate, aba: ABA, est, desde: Date.now() } };
     await gravarConta(cg);
     return null;
   }
@@ -548,22 +549,98 @@
     return null;
   }
 
-  async function operar(sinal, c) {
-    const base = { hora: sinal.t, dir: sinal.dir, estrategia: c.nome, ativo: ativo ? ativo.titulo : '' };
+  // ---------- abrir ordem em outro ativo sem mudar a tela (pela conexão da própria Olymp) ----------
+  const respostasAbrir = {};
+  window.addEventListener('message', (ev) => {
+    const d = ev.data;
+    if (ev.source !== window || !d) return;
+    if (d.__rsAbrirResp && respostasAbrir[d.id]) { respostasAbrir[d.id](d); delete respostasAbrir[d.id]; }
+    // guarda o modelo de ordem para a próxima vez que a página abrir
+    if (d.__rsModelo && vivo()) { try { chrome.storage.local.set({ ['modeloOrdem_' + tipoConta()]: d.modelo }); } catch (e) {} }
+  });
+  const tipoConta = () => (/demo/i.test(String(conta() || '')) ? 'demo' : 'real');
+  // depois que a página mostra a conta, devolve o modelo guardado DESTA conta
+  setTimeout(() => { try { const k = 'modeloOrdem_' + tipoConta(); chrome.storage.local.get(k, (r) => { if (r && r[k]) window.postMessage({ __rsGuardarModelo: r[k] }, '*'); }); } catch (e) {} }, 8000);
+  function abrirPorConexao(pair, dir, amount, duration) {
+    return new Promise((ok) => {
+      const id = 'a' + Math.random().toString(36).slice(2);
+      respostasAbrir[id] = ok;
+      window.postMessage({ __rsAbrir: { id, pair, dir, amount, duration, grupo: tipoConta() } }, '*');
+      setTimeout(() => { if (respostasAbrir[id]) { delete respostasAbrir[id]; ok({ ok: false, motivo: 'a página não respondeu' }); } }, 5000);
+    });
+  }
+
+  // ---------- vigiar os outros ativos aprovados ao mesmo tempo ----------
+  // cada ativo aprovado no ranking geral (fora o da tela) ganha um motor com a melhor combinação dele;
+  // perto da virada do minuto pede as últimas velas a cada 2 s e, quando sai sinal, entra direto naquele ativo
+  const vigia = {}; // simbolo -> { alvo, c, m, velas, carregando }
+  let vigiaInfo = '';
+  async function vigiarOutros() {
+    if (!cfg.ligado || !cfg.autoAtivo || !rankingGeral || !ativo || ativo.erro) { vigiaInfo = ''; return; }
+    const ocupados = await ativosDeOutrasJanelas();
+    const aprovados = rankingGeral.filter((r) => r.melhor && r.alvo && r.alvo.simbolo && r.titulo !== ativo.titulo && !ocupados.includes(r.titulo)).slice(0, 8);
+    const quero = new Set(aprovados.map((r) => r.alvo.simbolo));
+    for (const k of Object.keys(vigia)) if (!quero.has(k)) delete vigia[k];
+    const seg = new Date().getSeconds();
+    const pertoDaVirada = seg <= 8 || seg >= 58;
+    for (const r of aprovados) {
+      const k = r.alvo.simbolo;
+      const c = r.melhor;
+      let w = vigia[k];
+      if (!w || w.c !== c) {
+        w = vigia[k] = { alvo: { ...r.alvo, titulo: r.titulo }, c, m: null, velas: [], carregando: true, ult: 0 };
+        try {
+          const hist = await pedirVelas(w.alvo, c.tf, 600);
+          const m = criarMotor();
+          carregarHistorico(m, hist, motorCfg(c));
+          w.m = m; w.velas = hist.slice(-60);
+        } catch (e) { delete vigia[k]; continue; }
+        w.carregando = false;
+      }
+      if (!w.m) continue;
+      // fora da virada do minuto, só a cada 20 s (a vela só fecha na virada)
+      if (!pertoDaVirada && Date.now() - w.ult < 20000) continue;
+      w.ult = Date.now();
+      try {
+        const v = await pedirVelas(w.alvo, c.tf, 3);
+        v.forEach((kv, i) => atualizar(w.m, kv, i < v.length - 1, motorCfg(c), (id, tipo) => {
+          if (id !== c.est || tipo !== 'sinal') return;
+          const op = w.m.S[id].ops[w.m.S[id].ops.length - 1];
+          if (op && op.res === 'aberta') operar(op, c, w.alvo);
+        }));
+        if (v.length) { const ult = v[v.length - 1]; const i = w.velas.findIndex((x) => x.t === ult.t); if (i >= 0) w.velas[i] = ult; else { w.velas.push(...v.filter((x) => !w.velas.some((y) => y.t === x.t))); w.velas = w.velas.slice(-60); } }
+      } catch (e) { /* tenta na próxima */ }
+    }
+    const n = Object.keys(vigia).length;
+    vigiaInfo = n ? `Vigiando também: ${Object.values(vigia).map((w) => w.alvo.titulo).join(', ')}` : '';
+  }
+  let vigiando = false;
+  repetir(async () => { if (vigiando) return; vigiando = true; try { await vigiarOutros(); } finally { vigiando = false; } }, 2000);
+
+  async function operar(sinal, c, alvo) {
+    const remoto = !!alvo; // ativo vigiado em segundo plano: abre pela conexão da Olymp, sem mudar a tela
+    const A = alvo || ativo;
+    const base = { hora: sinal.t, dir: sinal.dir, estrategia: c.nome, ativo: A ? A.titulo : '' };
     if (!cfg.ligado) { registrar({ ...base, situacao: 'só sinal (robô desligado)' }); return; }
     // várias operações podem ficar abertas; só espera a anterior terminar de ser digitada na Olymp
     for (let i = 0; i < 40 && operando; i++) await espera(500);
     if (operando) { registrar({ ...base, situacao: 'pulou: a Olymp não liberou a tela a tempo' }); return; }
     operando = true;
     const id = ABA + '-' + sinal.t + '-' + c.est;
-    const motivo = await reservar(id, sinal.dir, Date.now() + c.exp * MINUTO + 15000, c.est);
+    const motivo = await reservar(id, sinal.dir, Date.now() + c.exp * MINUTO + 15000, c.est, A);
     if (motivo) { operando = false; registrar({ ...base, situacao: 'pulou: ' + motivo }); return; }
     const valor = valorDaEntrada();
-    const reg = registrar({ ...base, valor, conta: conta(), situacao: 'entrando...', id, sinal, retorno: retornoAtivo() });
+    const reg = registrar({ ...base, valor, conta: conta(), situacao: 'entrando...', id, sinal, retorno: remoto ? RETORNO : retornoAtivo() });
     try {
+      let clicouEm;
+      const antes = saldo();
+      if (remoto) {
+        clicouEm = Date.now();
+        const r = await abrirPorConexao(A.simbolo, sinal.dir, valor, c.exp * 60);
+        if (!r.ok) throw new Error(r.motivo || 'a Olymp não aceitou o pedido');
+      } else {
       await ajustarValor(valor);
       await ajustarDuracao(c.exp);
-      const antes = saldo();
       // a Olymp às vezes desliga os botões por alguns segundos (gráfico carregando): espera até 15 s
       let botao = null;
       for (let i = 0; i < 30; i++) {
@@ -573,10 +650,11 @@
       }
       if (!botao || botao.disabled) { travadas++; throw new Error('o botão de operar não está disponível'); }
       travadas = 0;
-      const clicouEm = Date.now();
+      clicouEm = Date.now();
       botao.click();
+      }
       // só conta a ordem se a própria Olymp confirmar que abriu
-      let dealId = await esperarDeal(ativo.simbolo, sinal.dir, clicouEm);
+      let dealId = await esperarDeal(A.simbolo, sinal.dir, clicouEm);
       // sem o aviso da Olymp, confere pelo saldo: se caiu o valor da entrada, a ordem abriu
       if (!dealId && isFinite(antes)) {
         for (let i = 0; i < 12 && !dealId; i++) {
@@ -606,7 +684,7 @@
       reg.limiteOlymp = Date.now() + durMin * MINUTO + 3 * MINUTO;
       // o resultado vem da Olymp quando ela fecha; isto é só a garantia se o aviso não chegar
       setTimeout(() => conferir(reg), durMin * MINUTO + 8000);
-      guardarPendente({ id, hora: reg.hora, dir: sinal.dir, valor, retorno: reg.retorno, conta: reg.conta, estrategia: c.nome, entrada: sinal.entrada, fim: Date.now() + durMin * MINUTO, ativo: { titulo: ativo.titulo, fonte: ativo.fonte, simbolo: ativo.simbolo } });
+      guardarPendente({ id, hora: reg.hora, dir: sinal.dir, valor, retorno: reg.retorno, conta: reg.conta, estrategia: c.nome, entrada: sinal.entrada, fim: Date.now() + durMin * MINUTO, ativo: { titulo: A.titulo, fonte: A.fonte, simbolo: A.simbolo } });
     } catch (e) {
       liberar(id);
       reg.situacao = 'falhou: ' + e.message;
@@ -934,6 +1012,7 @@
         return { t: r.titulo, ok: !!r.melhor, erro: r.erro || '', ac: x ? Math.round(r.melhor ? x.total.ac : Math.min(x.a.ac, x.b.ac)) : null, n: x ? x.total.n : 0, nome: x ? x.nome : '', exp: x ? x.exp : null };
       }).slice(0, 30),
       minAcerto: cfg.minAcerto,
+      vigiando: Object.values(vigia).map((w) => w.alvo.titulo),
       saldo: (q('[data-test="account-balance-value"]')?.innerText || '').trim(),
       escuta: Object.values(escuta),
       recusas,
@@ -1032,7 +1111,12 @@
   }
   // gráfico ao vivo no app: com ordem aberta, manda as últimas velas e o preço deste ativo a cada 3 s
   function enviarAoVivo() {
-    if (!ativo || !sessao.ops.some((r) => r.situacao === 'em andamento')) return;
+    // ordens abertas em ativos vigiados em segundo plano: manda as velas deles também
+    for (const w of Object.values(vigia)) {
+      if (!w.velas.length || !sessao.ops.some((r) => r.situacao === 'em andamento' && r.ativo === w.alvo.titulo)) continue;
+      try { chrome.runtime.sendMessage({ tipo: 'aovivo', ativo: w.alvo.titulo, velas: w.velas.slice(-60), preco: w.velas[w.velas.length - 1].c }, () => void chrome.runtime.lastError); } catch (e) {}
+    }
+    if (!ativo || !sessao.ops.some((r) => r.situacao === 'em andamento' && r.ativo === ativo.titulo)) return;
     const v = (colecao[ativo.titulo] || []).slice(-60).map((k) => ({ t: k.t, o: k.o, h: k.h, l: k.l, c: k.c }));
     const preco = precoDaTela();
     if (!v.length && preco == null) return;
@@ -1162,6 +1246,7 @@
 
     const topo = `
 <div class="rs-st"><span class="rs-dot" style="background:${cor}"></span><span>${esc(statusTxt)}</span></div>
+${vigiaInfo ? `<div class="rs-st" style="color:#8b97a8">${esc(vigiaInfo)}</div>` : ''}
 ${cfg.autoAtivo && cfg.ligado && proximaBusca > Date.now() && !trocando ? `<div class="rs-st" style="color:#8b97a8">Procurando oportunidades em todos os ativos · próximo teste às ${hora(proximaBusca).slice(0, 5)}</div>` : ''}
 ${(cfg.fecharAlvo > 0 || cfg.fecharModo === 'auto') && fecharInfo ? `<div class="rs-st" style="color:#8b97a8">Fechar antes: ${esc(fecharInfo)}</div>` : ""}
 ${real ? `<div class="rs-real">CONTA REAL: as operações usam dinheiro de verdade</div>` : `<div class="rs-l">Conta: ${esc(ct || '?')}</div>`}
