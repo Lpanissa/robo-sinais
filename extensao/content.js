@@ -556,6 +556,7 @@
 
   // ---------- negociações confirmadas pela própria Olymp (olymp-escuta.js) ----------
   const dealsVistos = {}; // id -> { pair, dir, em }
+  const fechamentos = []; // avisos de fechamento da Olymp (para conferir o "Fechar antes")
   let ultimaRecusa = null;
   const recusas = []; // últimas recusas da Olymp (vão no estado para o app)
   let ultimoPedido = null; // último pedido de abertura que a página mandou (com a duração real)
@@ -566,8 +567,10 @@
     if (d.tipo === 'recusou') { ultimaRecusa = { motivo: d.motivo, em: Date.now() }; recusas.unshift(new Date().toLocaleTimeString() + ' ' + d.motivo); recusas.length = Math.min(recusas.length, 5); return; }
     if (d.tipo === 'abriu') { if (!dealsVistos[d.id]) dealsVistos[d.id] = { pair: d.pair, dir: d.dir, em: Date.now(), usado: false }; return; }
     if (d.tipo === 'fechou') {
-      const reg = sessao.ops.find((r) => r.dealId === d.id);
-      if (!reg) return;
+      fechamentos.push({ id: d.id, bc: Number(d.bc) || 0, status: d.status, pair: d.pair, em: Date.now() });
+      if (fechamentos.length > 30) fechamentos.shift();
+      const reg = sessao.ops.find((r) => String(r.dealId) === String(d.id));
+      if (!reg || reg.fechandoAntes) return;
       reg.olympStatus = d.status;
       reg.olympBc = Number(d.bc) || 0;
       if (reg.situacao === 'em andamento' && reg.fechouAntes == null) conferir(reg);
@@ -895,6 +898,8 @@
       else alvo = cfg.fecharModo === 'valor' ? cfg.fecharAlvo : cheio * cfg.fecharAlvo / 100;
       if (v + 1e-9 < alvo) continue;
       fechando = true;
+      const clicouFechar = Date.now();
+      for (const r of minhas) r.fechandoAntes = true;
       try {
         b.click();
         await espera(700);
@@ -902,27 +907,47 @@
         const conf = [...document.querySelectorAll('[role="dialog"] button, [class*="modal"] button, [class*="Modal"] button, [class*="popup"] button')]
           .find((x) => x !== b && x.offsetParent && /^(fechar|confirmar|sim|ok|close|confirm|yes)/i.test((x.innerText || '').trim()));
         if (conf) { conf.click(); await espera(500); }
-        await espera(2500); // dá tempo do cartão sumir, para não contar duas vezes
-        const reg = minhas.pop();
-        if (reg) { liberar(reg.id); if (cheio > 0) reg.maxFrac = Math.max(reg.maxFrac || -9, v / cheio); reg.fechouAntes = Math.round(v * 100) / 100; reg.situacao = `fechou antes (+${v.toFixed(2)})`; reg.resultado = reg.fechouAntes; enviarOrdem(reg); }
-        else enviarOrdem(registrar({ hora: Date.now(), dir: '', estrategia: 'ordem manual', situacao: 'fechou antes (manual)', resultado: Math.round(v * 100) / 100, conta: conta() }));
+        // só conta se a própria Olymp avisar que fechou (até 6 s); senão, a ordem continua aberta e tenta de novo depois
+        let fx = null;
+        for (let i = 0; i < 24 && !fx; i++) { fx = fechamentos.find((x) => x.em >= clicouFechar && !x.usado && !sessao.ops.some((r) => String(r.dealId) === String(x.id) && !minhas.includes(r))); if (!fx) await espera(250); }
+        if (!fx) { fecharInfo = 'cliquei em "Fechar antes" mas a Olymp não confirmou; tento de novo'; continue; }
+        fx.usado = true;
+        // valor real que a Olymp pagou (pode vir só o lucro ou o lucro com a entrada)
+        const valorReal = (vl) => { const a = fx.bc, b2 = fx.bc - vl; return Math.round((Math.abs(a - v) <= Math.abs(b2 - v) ? a : b2) * 100) / 100; };
+        const reg = minhas.find((r) => String(r.dealId) === String(fx.id)) || (minhas.length === 1 && !String(minhas[0].dealId || '').match(/^\d/) ? minhas[0] : null);
+        if (reg) {
+          liberar(reg.id); if (cheio > 0) reg.maxFrac = Math.max(reg.maxFrac || -9, v / cheio);
+          reg.fechouAntes = valorReal(reg.valor || 1); reg.situacao = `fechou antes (+${reg.fechouAntes.toFixed(2)})`; reg.resultado = reg.fechouAntes;
+          // guarda o preço do ativo na hora em que a ordem terminaria, para comparar "se tivesse mantido"
+          if (reg.fim) depois(() => { reg.precoNoFim = precoAtualDe(reg.ativo); }, Math.max(0, reg.fim - Date.now()));
+          minhas.splice(minhas.indexOf(reg), 1);
+          enviarOrdem(reg);
+        } else if (!sessao.ops.some((r) => String(r.dealId) === String(fx.id))) {
+          enviarOrdem(registrar({ hora: Date.now(), dir: '', estrategia: 'ordem manual', ativo: fx.pair || '', situacao: 'fechou antes (manual)', resultado: valorReal(1), conta: conta() }));
+        }
         status(proteger ? `Protegeu o lucro (a ordem estava voltando): +${v.toFixed(2)}` : `Fechou antes no lucro: +${v.toFixed(2)}`, 'ok');
-      } finally { fechando = false; }
+      } finally { fechando = false; for (const r of minhas) r.fechandoAntes = false; }
     }
   }
   repetir(() => vigiarFechamento(), 700);
+  // preço do momento de um ativo: o da tela (ativo principal) ou o dos ativos vigiados em segundo plano
+  function precoAtualDe(nome) {
+    if (ativo && ativo.titulo === nome) {
+      const m = Object.values(motores).find((x) => x.velas.length);
+      return precoDaTela() ?? (m ? m.velas[m.velas.length - 1].c : null);
+    }
+    const w = Object.values(vigia).find((x) => x.alvo && x.alvo.titulo === nome && x.velas.length);
+    return w ? w.velas[w.velas.length - 1].c : null;
+  }
 
   // resultado pela cotação (não pelo saldo, que mistura as operações das outras janelas)
   // como a operação terminaria se fosse até o fim (pela cotação)
   function resultadoNoFim(reg) {
-    const s = reg.sinal;
-    let res = s.res;
-    if (res !== 'acerto' && res !== 'erro') {
-      const m = Object.values(motores).find((x) => x.velas.length);
-      const ult = m ? m.velas[m.velas.length - 1].c : null;
-      res = ult == null || ult === s.entrada ? null : (s.dir === 'up' ? ult > s.entrada : ult < s.entrada) ? 'acerto' : 'erro';
-    }
-    return res === 'acerto' ? Math.round(reg.valor * reg.retorno * 100) / 100 : res === 'erro' ? -reg.valor : null;
+    const ent = reg.entradaPreco != null ? reg.entradaPreco : reg.sinal && reg.sinal.entrada;
+    const fim = reg.precoNoFim != null ? reg.precoNoFim : precoAtualDe(reg.ativo);
+    if (ent == null || fim == null || fim === ent) return null;
+    const dir = reg.dir || (reg.sinal && reg.sinal.dir);
+    return (dir === 'up' ? fim > ent : fim < ent) ? Math.round(reg.valor * reg.retorno * 100) / 100 : -reg.valor;
   }
   // placar "fechar antes x deixar ir até o fim", somado entre as janelas
   let fecharStats = { n: 0, fechando: 0, deixando: 0, viraram: 0 };
