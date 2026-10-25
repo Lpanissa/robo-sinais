@@ -41,11 +41,19 @@ async function velas(m) {
 const SB_URL = 'https://fyxksvydxwvygjebanno.supabase.co/rest/v1/sinais_ordens';
 const SB_CHAVE = 'sb_publishable_HA-Ez2aumnGCLZt2rf-bsQ_MqipvpWK';
 const CODIGO = 'rJAShHACX2c91d6HpYqypp_1'; // mesmo código do app: só quem tem ele lê as ordens
+const COLUNAS_ORDEM = ['id', 'hora', 'conta', 'ativo', 'estrategia', 'dir', 'valor', 'resultado', 'situacao', 'fechou_antes', 'se_fosse_ate_o_fim', 'entrada', 'fim'];
 async function enviarLote(linhas) {
   const r = await fetch(SB_URL + '?on_conflict=id', {
     method: 'POST',
     headers: { apikey: SB_CHAVE, Authorization: 'Bearer ' + SB_CHAVE, 'Content-Type': 'application/json', 'x-codigo': CODIGO, Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify(linhas.map((l) => ({ ...l, codigo: CODIGO, atualizado_em: new Date().toISOString() }))),
+    // o banco recusa um lote em que as linhas têm campos diferentes (ordens de versões antigas na fila): manda todas iguais
+    body: JSON.stringify(linhas.map((l) => {
+      const o = {};
+      for (const k of COLUNAS_ORDEM) o[k] = l[k] === undefined ? null : l[k];
+      o.codigo = CODIGO; o.atualizado_em = new Date().toISOString();
+      if (o.fechou_antes == null) o.fechou_antes = false;
+      return o;
+    })),
   });
   if (!r.ok) throw new Error('HTTP ' + r.status);
 }
@@ -116,3 +124,6 @@ async function verificarVersao() {
   } catch (e) { /* tenta de novo depois */ }
 }
 setInterval(verificarVersao, 60000);
+
+// manda o que ficou na fila (sem internet ou recusado) a cada minuto, sem esperar a próxima ordem
+setInterval(() => { enviarFila().catch(() => {}); }, 60000);
