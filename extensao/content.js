@@ -1019,6 +1019,8 @@
       }).slice(0, 30),
       minAcerto: cfg.minAcerto,
       vigiando: Object.values(vigia).map((w) => w.alvo.titulo),
+      // últimas tentativas (inclusive as que pularam ou falharam), para entender por que não entrou
+      ultimas: sessao.ops.slice(0, 8).map((r) => ({ h: hora(r.hora || Date.now()).slice(0, 5), a: r.ativo || '', e: r.estrategia || '', d: r.dir || '', s: String(r.situacao || '').slice(0, 140) })),
       saldo: (q('[data-test="account-balance-value"]')?.innerText || '').trim(),
       escuta: Object.values(escuta),
       recusas,
