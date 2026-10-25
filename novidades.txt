@@ -1,1 +1,1 @@
-A lista de Ativos testados agora fica recolhida, mostrando só o ativo atual. Toque na setinha para ver todos.
+O card do robô agora mostra o saldo real da sua conta na Olymp.

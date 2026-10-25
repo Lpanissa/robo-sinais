@@ -2,13 +2,13 @@
   "expo": {
     "name": "Robô de Sinais",
     "slug": "robo-sinais",
-    "version": "1.3.4",
+    "version": "1.3.5",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0e141d",
     "android": {
       "package": "com.panissa.robosinais",
-      "versionCode": 11,
+      "versionCode": 12,
       "permissions": [
         "VIBRATE"
       ],
