@@ -47,6 +47,8 @@
   const TIRADAS = new Set(['esto_rsi', 'rsi_bb']);
   const RETORNO = 0.85; // retorno médio da Olymp no acerto, usado nas contas do teste
   const EMPATE = (100 / (1 + RETORNO));
+  // acerto mínimo para empatar com um retorno (ex.: 0,80 -> 55,6%)
+  const empateDoRetorno = (r) => 100 / (1 + (r > 0 ? r : RETORNO));
   const PADRAO = {
     ligado: false, autoAtivo: false, sempreLeitura: 1, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
@@ -718,6 +720,11 @@
     if (operando) { registrar({ ...base, situacao: 'pulou: a Olymp não liberou a tela a tempo' }); return; }
     const crit = await criterioAoVivo(A.titulo, c);
     if (crit) { registrar({ ...base, situacao: 'pulou: ' + crit }); return; }
+    // Time Machine: o acerto "garantido" da combinação tem que passar do empate do retorno ATUAL do ativo
+    // (retorno 85% pede 54%; 70% já pede 59%). Abaixo disso, no longo prazo a combinação perde dinheiro.
+    const empate = empateDoRetorno(remoto ? RETORNO : retornoAtivo());
+    const garantido = c.conf != null ? c.conf : confianca(c.total);
+    if (garantido < empate) { registrar({ ...base, situacao: `pulou: retorno de ${Math.round(100 * (remoto ? RETORNO : retornoAtivo()))}% pede acerto de ${empate.toFixed(1)}%, a combinação garante ${garantido.toFixed(1)}% (Time Machine)` }); return; }
     operando = true;
     const id = ABA + '-' + sinal.t + '-' + c.est;
     const motivo = await reservar(id, sinal.dir, Date.now() + c.exp * MINUTO + 15000, c.est, A);

@@ -1,1 +1,1 @@
-O card do robô agora mostra o saldo real da sua conta na Olymp.
+Extensão 1.29.0: o robô pula a entrada quando o retorno do ativo cai e a combinação não garante o acerto necessário para empatar (ideia da Time Machine).
