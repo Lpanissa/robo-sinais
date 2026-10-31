@@ -115,12 +115,10 @@
     if (m.__rsAbrir) {
       const { id, pair, dir, amount, duration, grupo } = m.__rsAbrir;
       if (!ws || ws.readyState !== 1) { postar({ __rsAbrirResp: true, id, ok: false, motivo: 'conexão da Olymp fechada' }); return; }
-      // usa o modelo da conta aberta; se ainda não tiver, monta a partir do modelo da outra conta trocando só a conta
-      const base = modelos[grupo] || modelos.real || modelos.demo || modelo;
-      if (!base || !grupo) { postar({ __rsAbrirResp: true, id, ok: false, motivo: 'sem modelo de ordem (falta uma entrada pela tela primeiro)' }); return; }
+      // usa só o modelo da própria conta aberta (a Olymp recusa o modelo de uma conta usado na outra)
+      const base = modelos[grupo];
+      if (!base) { postar({ __rsAbrirResp: true, id, ok: false, motivo: 'ainda não tenho o modelo de ordem da conta ' + (grupo === 'demo' ? 'Demo' : 'Real') + ' (falta uma entrada pela tela nesta conta)' }); return; }
       const x = JSON.parse(JSON.stringify(base));
-      const og = String(base.d[0].group || '');
-      x.d[0].group = og && og === og.toUpperCase() ? grupo.toUpperCase() : grupo;
       x.uuid = 'rs' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
       Object.assign(x.d[0], { pair, dir, amount, duration });
       ws.send(JSON.stringify([x]));
