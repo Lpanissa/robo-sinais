@@ -140,6 +140,7 @@ export default function ControleRobo() {
           <Pressable onPress={() => mudar({ minAcerto: 60, minOps: 60, sempreLeitura: 0, modo: 'todas', autoAtivo: 1 })} style={[s.botaoGrande, { backgroundColor: C.destaque, marginTop: 0 }]}>
             <Text style={s.botaoGrandeTxt}>Modo mais assertivo (só acima de 60% no teste)</Text>
           </Pressable>
+          <Opcoes titulo="Conta onde o robô opera" valor={cfg.contaAlvo || ''} opcoes={[['', 'A que estiver aberta'], ['real', 'Real'], ['demo', 'Demo']]} mudar={(v) => mudar({ contaAlvo: v })} />
           <Opcoes titulo="Ativo" valor={cfg.autoAtivo ? 1 : 0} opcoes={[[0, 'O que estiver aberto'], [1, 'O robô escolhe o melhor']]} mudar={(v) => mudar({ autoAtivo: v })} />
           <Opcoes titulo="Leitura de vela + suporte/resistência" valor={cfg.sempreLeitura ? 1 : 0} opcoes={[[1, 'Sempre operar'], [0, 'Só se passar no teste']]} mudar={(v) => mudar({ sempreLeitura: v })} />
           <Opcoes titulo="Como escolher" valor={cfg.modo} opcoes={[['todas', 'Todas aprovadas'], ['melhor', 'Só a melhor'], ['manual', 'Eu escolho']]} mudar={(v) => mudar({ modo: v })} />
