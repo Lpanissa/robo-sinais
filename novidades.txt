@@ -1,1 +1,1 @@
-Extensão 1.29.0: o robô pula a entrada quando o retorno do ativo cai e a combinação não garante o acerto necessário para empatar (ideia da Time Machine).
+Nas configurações do robô agora dá para escolher a conta onde ele opera: a que estiver aberta, Real ou Demo. O robô troca sozinho na Olymp.
