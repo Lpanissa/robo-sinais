@@ -662,6 +662,7 @@
   const vigia = {}; // simbolo -> { alvo, c, m, velas, carregando }
   let vigiaInfo = '', rankingGeralEm = 0, rankingGeralCfg = '';
   const filtroTxt = () => [cfg.minAcerto, cfg.minOps, cfg.minExpira, cfg.minConfianca].join('|');
+  let vigiaDiag = '', vigiaFalhas = [];
   async function vigiarOutros() {
     // sem lista de aprovados (página acabou de abrir) ou lista com mais de 30 min: testa todos os ativos de novo
     if (cfg.ligado && cfg.autoAtivo && !rodandoGeral && !trocando && ativo && !ativo.erro && rankingAtivos().length && (!rankingGeral || rankingGeralCfg !== filtroTxt() || (!rankingGeral.length && Date.now() - (rankingGeralEm || 0) > 60000) || Date.now() - (rankingGeralEm || 0) > 30 * MINUTO)) {
@@ -670,8 +671,9 @@
       rodarRankingGeral().catch(() => {});
       return;
     }
-    if (!cfg.ligado || !cfg.autoAtivo || !rankingGeral || rodandoGeral || !ativo || ativo.erro) { vigiaInfo = ''; return; }
+    if (!cfg.ligado || !cfg.autoAtivo || !rankingGeral || rodandoGeral || !ativo || ativo.erro) { vigiaInfo = ''; vigiaDiag = `parado: ligado=${cfg.ligado} auto=${cfg.autoAtivo} ranking=${!!rankingGeral} rodando=${rodandoGeral} ativo=${ativo ? ativo.titulo : '-'} erro=${ativo && ativo.erro}`; return; }
     const ocupados = await ativosDeOutrasJanelas();
+    vigiaDiag = `aprovados=${rankingGeral.filter((r) => r.melhor).map((r) => r.titulo).join('|')} ocupados=${ocupados.join('|')} tela=${ativo.titulo} falhas=${vigiaFalhas.slice(-3).join(' ; ')}`;
     const aprovados = rankingGeral.filter((r) => r.melhor && r.alvo && r.alvo.simbolo && r.titulo !== ativo.titulo && !ocupados.includes(r.titulo)).slice(0, 8);
     const quero = new Set(aprovados.map((r) => r.alvo.simbolo));
     for (const k of Object.keys(vigia)) if (!quero.has(k)) delete vigia[k];
@@ -688,7 +690,7 @@
           const m = criarMotor();
           carregarHistorico(m, hist, motorCfg(c));
           w.m = m; w.velas = hist.slice(-60);
-        } catch (e) { delete vigia[k]; continue; }
+        } catch (e) { vigiaFalhas.push(r.titulo + ': ' + e.message); if (vigiaFalhas.length > 10) vigiaFalhas.shift(); delete vigia[k]; continue; }
         w.carregando = false;
       }
       if (!w.m) continue;
@@ -1230,7 +1232,7 @@
         return { t: r.titulo, ok: !!r.melhor, erro: r.erro || '', conf: x && x.conf != null ? Math.round(x.conf) : null, ac: x ? Math.round(r.melhor ? x.total.ac : Math.min(x.a.ac, x.b.ac)) : null, n: x ? x.total.n : 0, nome: x ? x.nome : '', exp: x ? x.exp : null };
       }).slice(0, 30),
       minAcerto: cfg.minAcerto,
-      vigiando: Object.values(vigia).map((w) => w.alvo.titulo),
+      vigiando: Object.values(vigia).map((w) => w.alvo.titulo), vigiaDiag,
       donchian: { em: estudoDonchian.em, linhas: estudoDonchian.linhas },
       inzone: { em: estudoInZone.em, rodando: estudoInZone.rodando, top: estudoInZone.linhas.filter((x) => !x.erro).slice(0, 40), asia: estudoInZone.linhas.filter((x) => /asia/i.test(x.t)), erros: estudoInZone.linhas.filter((x) => x.erro).length },
       // últimas tentativas (inclusive as que pularam ou falharam), para entender por que não entrou
