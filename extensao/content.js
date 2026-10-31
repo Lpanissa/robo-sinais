@@ -52,7 +52,7 @@
   const PADRAO = {
     ligado: false, autoAtivo: false, sempreLeitura: 1, modo: 'todas', estrategia: 'conf', expira: 1, tfManual: 1,
     valor: 10, modoValor: 'percent', percent: 1, chave: '',
-    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0, metaGanhoDia: 0, limitePerdaDia: 0, minExpira: 0, minConfianca: 55,
+    maxPerdasSeguidas: 3, limitePerda: 100, minAcerto: 56, minOps: 40, rigor: 2.5, maxAbertas: 0, metaGanhoDia: 0, limitePerdaDia: 0, minExpira: 0, minConfianca: 55, contaAlvo: '',
     fecharAlvo: 0, fecharModo: 'auto', fecharManuais: 0, // fechar antes no lucro (0 = nunca); sem stop de perda
   };
 
@@ -719,6 +719,7 @@
     // várias operações podem ficar abertas; só espera a anterior terminar de ser digitada na Olymp
     for (let i = 0; i < 40 && operando; i++) await espera(500);
     if (operando) { registrar({ ...base, situacao: 'pulou: a Olymp não liberou a tela a tempo' }); return; }
+    if (cfg.contaAlvo && tipoConta() !== cfg.contaAlvo) { registrar({ ...base, situacao: `pulou: a Olymp está na conta ${tipoConta() === 'demo' ? 'Demo' : 'Real'} e o app pediu ${cfg.contaAlvo === 'demo' ? 'Demo' : 'Real'} (trocando)` }); return; }
     const crit = await criterioAoVivo(A.titulo, c);
     if (crit) { registrar({ ...base, situacao: 'pulou: ' + crit }); return; }
     // Time Machine: o acerto "garantido" da combinação tem que passar do empate do retorno ATUAL do ativo
@@ -1030,6 +1031,32 @@
   setTimeout(() => { estudarInZone().catch(() => {}); }, 90000);
   repetir(() => estudarInZone(), 60 * MINUTO);
 
+  // ---------- conta escolhida no app (real / demo): o robô troca sozinho na Olymp ----------
+  let ultimaTrocaConta = 0;
+  const visivelConta = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && el.offsetParent !== null; };
+  async function garantirConta() {
+    const alvo = cfg.contaAlvo;
+    if (!alvo || !conta() || tipoConta() === alvo || trocando || operando) return;
+    if (sessao.ops.some((r) => r.situacao === 'em andamento')) return; // espera as ordens abertas terminarem
+    if (Date.now() - ultimaTrocaConta < 60000) return;
+    ultimaTrocaConta = Date.now();
+    const titulo = q('[data-test="account-balance-title"]');
+    if (!titulo) return;
+    const antes = new Set([...document.querySelectorAll('div,span,button,li,a,p')].filter(visivelConta));
+    (titulo.closest('button,[role="button"]') || titulo).click();
+    await espera(800);
+    const quer = alvo === 'demo' ? /^\s*(demo|conta demo|demo account)\b/i : /^\s*(usd|real|conta real|r\$|brl)\b/i;
+    const cands = [...document.querySelectorAll('div,span,button,li,a,p')]
+      .filter((el) => !antes.has(el) && visivelConta(el) && !el.closest('[data-test="account-balance-title"]') && el !== titulo && quer.test(el.innerText || '') && (el.innerText || '').length < 60)
+      .sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
+    const op = cands.find((el) => !titulo.contains(el));
+    if (!op) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); status(`Não achei a opção da conta ${alvo === 'demo' ? 'Demo' : 'Real'} no menu da Olymp`, 'aviso'); return; }
+    (op.closest('button,[role="button"],li,a') || op).click();
+    await espera(1500);
+    status(tipoConta() === alvo ? `Troquei para a conta ${alvo === 'demo' ? 'Demo' : 'Real'}, como pedido no app` : 'Tentei trocar de conta, mas a Olymp não mudou; tento de novo em 1 min', tipoConta() === alvo ? 'ok' : 'aviso');
+  }
+  repetir(() => garantirConta(), 5000);
+
   // preço do momento de um ativo: o da tela (ativo principal) ou o dos ativos vigiados em segundo plano
   function precoAtualDe(nome) {
     if (ativo && ativo.titulo === nome) {
@@ -1118,7 +1145,7 @@
   // o que o app pode mudar
   const CHAVES_APP = ['ligado', 'autoAtivo', 'sempreLeitura', 'modo', 'modoValor', 'valor', 'percent', 'maxPerdasSeguidas', 'limitePerda',
     'metaGanhoDia', 'limitePerdaDia', 'maxAbertas', 'minAcerto', 'minOps', 'fecharModo', 'fecharAlvo', 'fecharManuais', 'expira', 'estrategia', 'tfManual',
-    'zerarEm', 'bancaInicial', 'minExpira', 'minConfianca'];
+    'zerarEm', 'bancaInicial', 'minExpira', 'minConfianca', 'contaAlvo'];
   const msg = (m) => new Promise((ok) => { try { if (!vivo()) return ok(null); chrome.runtime.sendMessage(m, (r) => { void chrome.runtime.lastError; ok(r || null); }); } catch (e) { ok(null); } });
   function cfgParaApp() { const o = {}; for (const k of CHAVES_APP) o[k] = cfg[k]; return o; }
   function enviarCfg() { msg({ tipo: 'controle-cfg', cfg: cfgParaApp(), rev: cfg.rev || 0 }); }
