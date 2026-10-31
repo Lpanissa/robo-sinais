@@ -609,6 +609,13 @@
     const d = ev.data;
     if (ev.source !== window || !d || !d.__rsDeal) return;
     if (d.tipo === 'pedido') { ultimoPedido = { ...d, em: Date.now() }; return; }
+    if (d.tipo === 'recusou' && /invalid_request/.test(d.motivo || '') && Date.now() - (ultimoAbrirConexao || 0) < 10000) {
+      // a Olymp recusou o modelo guardado desta conta (ficou velho): joga fora para pegar um novo na próxima entrada pela tela
+      const g = tipoConta();
+      try { chrome.storage.local.remove('modeloOrdem_' + g); } catch (e) {}
+      window.postMessage({ __rsEsquecerModelo: g }, '*');
+      status(`O modelo de ordem da conta ${g === 'demo' ? 'Demo' : 'Real'} ficou velho; vou pegar um novo na próxima entrada pela tela`, 'aviso');
+    }
     if (d.tipo === 'recusou') { ultimaRecusa = { motivo: d.motivo, em: Date.now() }; recusas.unshift(new Date().toLocaleTimeString() + ' ' + d.motivo); recusas.length = Math.min(recusas.length, 5); return; }
     if (d.tipo === 'abriu') { if (!dealsVistos[d.id]) dealsVistos[d.id] = { pair: d.pair, dir: d.dir, em: Date.now(), usado: false }; return; }
     if (d.tipo === 'fechou') {
@@ -647,7 +654,9 @@
   // depois que a página mostra a conta, devolve o modelo guardado DESTA conta
   // devolve para a página os modelos guardados das duas contas (a da tela primeiro)
   setTimeout(() => { try { const ks = ['modeloOrdem_' + tipoConta(), 'modeloOrdem_real', 'modeloOrdem_demo']; chrome.storage.local.get(ks, (r) => { for (const k of ks) if (r && r[k]) window.postMessage({ __rsGuardarModelo: r[k] }, '*'); }); } catch (e) {} }, 8000);
+  let ultimoAbrirConexao = 0;
   function abrirPorConexao(pair, dir, amount, duration) {
+    ultimoAbrirConexao = Date.now();
     return new Promise((ok) => {
       const id = 'a' + Math.random().toString(36).slice(2);
       respostasAbrir[id] = ok;

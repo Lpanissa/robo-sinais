@@ -110,6 +110,7 @@
     }
     if (m.__rsPedirAtivos) postar({ __rsAtivos: true, lista: Object.values(ativos), em: ativosEm });
     // modelo guardado de outra vez (o robô devolve ao carregar a página)
+    if (m.__rsEsquecerModelo) { delete modelos[m.__rsEsquecerModelo]; if (grupoDe(modelo) === m.__rsEsquecerModelo) modelo = null; }
     if (m.__rsGuardarModelo) { const g = grupoDe(m.__rsGuardarModelo); if (g && !modelos[g]) modelos[g] = m.__rsGuardarModelo; if (!modelo) modelo = m.__rsGuardarModelo; }
     // abrir negociação em qualquer ativo sem mudar a tela: copia o pedido que a própria Olymp usa e troca ativo, direção, valor e duração
     if (m.__rsAbrir) {
