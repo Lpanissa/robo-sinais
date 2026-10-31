@@ -1031,6 +1031,30 @@
   setTimeout(() => { estudarInZone().catch(() => {}); }, 90000);
   repetir(() => estudarInZone(), 60 * MINUTO);
 
+  // ---------- anúncios e janelas da Olymp: fecha sozinho para o robô não ficar preso ----------
+  // só aperta "fechar / agora não / depois / X"; nunca aperta botão de aceitar, comprar, depositar ou confirmar
+  const TXT_FECHAR = /^(×|✕|x|fechar|close|agora não|não, obrigado|nao, obrigado|mais tarde|depois|pular|skip|not now|no, thanks|entendi|ok, entendi|dispensar|dismiss|cancelar)$/i;
+  const TXT_PERIGO = /depósit|deposit|compr|pagar|pagamento|aceit|ativar|confirm|abrir oper|resgatar|participar|começar|upgrade|assin/i;
+  let ultimoAnuncio = 0;
+  function fecharAnuncios() {
+    if (fechando || operando || trocando || Date.now() - ultimoAnuncio < 2500) return;
+    const janelas = [...document.querySelectorAll('[role="dialog"],[aria-modal="true"],[class*="modal" i],[class*="popup" i]')]
+      .filter((el) => visivelConta(el) && !el.closest('#rs-painel') && el.getBoundingClientRect().width > 200 && el.getBoundingClientRect().height > 120)
+      // nunca fecha o painel de Negociações (o robô usa para o "Fechar antes") nem a lista de ativos
+      .filter((el) => !/negocia[cç][oõ]es|hist[oó]rico|posi[cç][oõ]es abertas|fechar antes|explorar ativos/i.test(el.innerText || ''));
+    for (const j of janelas) {
+      const botoes = [...j.querySelectorAll('button,[role="button"],a,[class*="close" i],[aria-label]')].filter(visivelConta);
+      const fechar = botoes.find((b) => /close|fechar|dismiss/i.test(b.getAttribute('aria-label') || '') || /(^|[-_ ])close([-_ ]|$)/i.test(String(b.className || '')))
+        || botoes.find((b) => TXT_FECHAR.test((b.innerText || '').trim()) && !TXT_PERIGO.test(b.innerText || ''));
+      if (!fechar) continue;
+      ultimoAnuncio = Date.now();
+      fechar.click();
+      status('Fechei uma janela/anúncio da Olymp que estava na frente', 'ok');
+      return;
+    }
+  }
+  repetir(() => fecharAnuncios(), 3000);
+
   // ---------- conta escolhida no app (real / demo): o robô troca sozinho na Olymp ----------
   let ultimaTrocaConta = 0;
   const visivelConta = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && el.offsetParent !== null; };
@@ -1040,6 +1064,7 @@
     if (sessao.ops.some((r) => r.situacao === 'em andamento')) return; // espera as ordens abertas terminarem
     if (Date.now() - ultimaTrocaConta < 60000) return;
     ultimaTrocaConta = Date.now();
+    ultimoAnuncio = Date.now() + 5000; // não confunde o menu de contas com anúncio
     const titulo = q('[data-test="account-balance-title"]');
     if (!titulo) return;
     const antes = new Set([...document.querySelectorAll('div,span,button,li,a,p')].filter(visivelConta));
