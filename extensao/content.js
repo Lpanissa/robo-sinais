@@ -641,11 +641,12 @@
     if (ev.source !== window || !d) return;
     if (d.__rsAbrirResp && respostasAbrir[d.id]) { respostasAbrir[d.id](d); delete respostasAbrir[d.id]; }
     // guarda o modelo de ordem para a próxima vez que a página abrir
-    if (d.__rsModelo && vivo()) { try { chrome.storage.local.set({ ['modeloOrdem_' + tipoConta()]: d.modelo }); } catch (e) {} }
+    if (d.__rsModelo && vivo()) { try { const g = String((d.modelo && d.modelo.d && d.modelo.d[0] && d.modelo.d[0].group) || tipoConta()).toLowerCase(); chrome.storage.local.set({ ['modeloOrdem_' + g]: d.modelo }); } catch (e) {} }
   });
   const tipoConta = () => (/demo/i.test(String(conta() || '')) ? 'demo' : 'real');
   // depois que a página mostra a conta, devolve o modelo guardado DESTA conta
-  setTimeout(() => { try { const k = 'modeloOrdem_' + tipoConta(); chrome.storage.local.get(k, (r) => { if (r && r[k]) window.postMessage({ __rsGuardarModelo: r[k] }, '*'); }); } catch (e) {} }, 8000);
+  // devolve para a página os modelos guardados das duas contas (a da tela primeiro)
+  setTimeout(() => { try { const ks = ['modeloOrdem_' + tipoConta(), 'modeloOrdem_real', 'modeloOrdem_demo']; chrome.storage.local.get(ks, (r) => { for (const k of ks) if (r && r[k]) window.postMessage({ __rsGuardarModelo: r[k] }, '*'); }); } catch (e) {} }, 8000);
   function abrirPorConexao(pair, dir, amount, duration) {
     return new Promise((ok) => {
       const id = 'a' + Math.random().toString(36).slice(2);
